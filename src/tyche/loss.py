@@ -3,7 +3,7 @@ import torch.nn.functional as F
 from torch import nn as nn
 from torch.nn.modules.loss import CrossEntropyLoss, weak_module, weak_script_method
 
-from fhggeneral.utils import param_scheduler as p_scheduler
+from tyche.utils import param_scheduler as p_scheduler
 
 
 def kullback_leibler(mean, sigma, reduction='mean'):
