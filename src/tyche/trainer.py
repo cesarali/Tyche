@@ -11,7 +11,6 @@ from torch.nn.modules.loss import _Loss
 
 from tyche.utils import param_scheduler as p_scheduler
 from tyche.utils.helper import create_instance
-from gentext.models.blocks import WassersteinDistance
 
 
 class BaseTrainingProcedure(object):
@@ -356,8 +355,6 @@ class TrainingVAE(BaseTrainingProcedure):
 
 
 class TrainingRnnProcedure(BaseTrainingProcedure):
-    """Tralalala     """
-
     def __init__(self,
                  model,
                  loss,
@@ -366,37 +363,11 @@ class TrainingRnnProcedure(BaseTrainingProcedure):
                  resume,
                  params,
                  data_loader,
-                 train_logger=None):
-        """
-        :param model:
-        :param loss:
-        :param optimizer:
-        :param resume:
-        :param params:
-        :param data_loader:
-        :param train_logger:
-        :returns:
-        :rtype:
-
-        """
-
+                 train_logger=None, **kwargs):
         super(TrainingRnnProcedure, self).__init__(model, loss, metric, optimizer, resume,
-                                                   params, train_logger)
-        self.train_loader = data_loader.train_data_loader
-        self.test_loader = data_loader.test_data_loader
-        self.do_validation = self.test_loader is not None
-        self.n_train_batches = len(self.train_loader)
-        self.n_test_batches = len(self.test_loader)
+                                                   params, train_logger, data_loader)
 
-    def _train_epoch(self, epoch):
-        """
-
-        :param epoch:
-        :returns:
-        :rtype:
-
-        """
-
+    def _train_epoch(self, epoch: int) -> Dict:
         self.model.train()
         p_bar = tqdm.tqdm(
                 desc="Training batch: ", total=self.n_train_batches, unit="batch")
@@ -404,7 +375,7 @@ class TrainingRnnProcedure(BaseTrainingProcedure):
         total_rmse = 0.0
         total_acc = 0.0
 
-        for batch_idx, (x, mark) in enumerate(self.train_loader):
+        for batch_idx, (x, mark) in enumerate(self.data_loader.train):
             self.model.rnn.init_hidden(self.batch_size)
             num_seq = x.size()[1]
             N = np.prod(x.size()[:-1])
@@ -421,7 +392,7 @@ class TrainingRnnProcedure(BaseTrainingProcedure):
                 self.optimizer.step()
 
                 batch_loss += loss.item()
-                batch_rmse += self.metric(y, x[:, seq_ix, :, -1]).item()
+                batch_rmse += self.metrics[0](y, x[:, seq_ix, :, -1]).item()
                 batch_acc += self.__accuracy(mark_prediction, mark[:, seq_ix, :, -1]).item()
                 self.model.rnn.detach()
             total_loss += batch_loss
@@ -463,7 +434,7 @@ class TrainingRnnProcedure(BaseTrainingProcedure):
                     total=self.n_test_batches,
                     unit="batch")
             # self.model.rnn.init_hidden(self.batch_size)
-            for batch_idx, (x, mark) in enumerate(self.test_loader):
+            for batch_idx, (x, mark) in enumerate(self.data_loader.validate):
                 N = np.prod(x.size()[:-1])
                 loss, y, mark_pred = self.model.loss(x, mark)
                 rmse = self.metric(y, x[:, :, -1])
@@ -486,16 +457,6 @@ class TrainingRnnProcedure(BaseTrainingProcedure):
             self._log_test_step(epoch, epoch_loss, epoch_rmse, epoch_acc)
             p_bar.close()
         return {"loss": epoch_loss, "rmse": epoch_rmse, "acc": epoch_acc}
-
-
-def free_params(module):
-    for p in module.parameters():
-        p.requires_grad = True
-
-
-def frozen_params(module):
-    for p in module.parameters():
-        p.requires_grad = False
 
 
 class TrainingWAE(BaseTrainingProcedure):
@@ -864,3 +825,13 @@ class TrainingVQ(BaseTrainingProcedure):
         for m in self.metrics:
             statistics[type(m).__name__] = 0.0
         return statistics
+
+
+def free_params(module):
+    for p in module.parameters():
+        p.requires_grad = True
+
+
+def frozen_params(module):
+    for p in module.parameters():
+        p.requires_grad = False

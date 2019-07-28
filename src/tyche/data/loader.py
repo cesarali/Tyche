@@ -199,9 +199,9 @@ class BasicEventDataLoader(ADataLoader):
         self.__test_data_loader = DataLoader(test_data, **kwargs)
 
     @property
-    def train_data_loader(self):
+    def train(self):
         return self.__train_data_loader
 
     @property
-    def test_data_loader(self):
+    def validate(self):
         return self.__test_data_loader
