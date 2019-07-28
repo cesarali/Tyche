@@ -21,7 +21,7 @@ def fix_nulls(s):
 
 class RatebeerBow(data.Dataset):
     def __init__(self, text_field, **kwargs):
-        FIELD = Field(sequential=False, use_vocab=False, preprocessing=lambda x:)
+        FIELD = Field(sequential=False, use_vocab=False, preprocessing=lambda x:x)
         fields = {
             'arrivals': [('a', FIELD), ('t', text_field)]
         }

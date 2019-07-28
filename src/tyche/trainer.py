@@ -9,8 +9,8 @@ import tqdm
 from tensorboardX import SummaryWriter
 from torch.nn.modules.loss import _Loss
 
-from fhggeneral.utils import param_scheduler as p_scheduler
-from fhggeneral.utils.helper import create_instance
+from tyche.utils import param_scheduler as p_scheduler
+from tyche.utils.helper import create_instance
 from gentext.models.blocks import WassersteinDistance
 
 

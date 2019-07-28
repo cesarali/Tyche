@@ -3,8 +3,8 @@ from abc import ABC
 import spacy
 from torch.utils.data.dataloader import DataLoader
 
-from fhggeneral import data
-from fhggeneral.data import datasets
+from tyche import data
+from tyche.data import datasets
 
 spacy_en = spacy.load('en')
 
