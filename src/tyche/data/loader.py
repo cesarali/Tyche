@@ -192,8 +192,8 @@ class DataLoaderWiki103(ADataLoader):
 class BasicEventDataLoader(ADataLoader):
     def __init__(self, **kwargs):
         data_path = kwargs.pop('data_path')
-        bptt_size = kwargs.pop('bptt_size')
-        train_data = datasets.BasicEventDataset(data_path, bptt_size=bptt_size)
+        self.__bptt_size = kwargs.pop('bptt_size')
+        train_data = datasets.BasicEventDataset(data_path, bptt_size=self.__bptt_size)
         test_data = datasets.BasicEventDataset(data_path, train=False)
         self.__train_data_loader = DataLoader(train_data, **kwargs)
         self.__test_data_loader = DataLoader(test_data, **kwargs)
@@ -205,3 +205,7 @@ class BasicEventDataLoader(ADataLoader):
     @property
     def validate(self):
         return self.__test_data_loader
+
+    @property
+    def bptt(self):
+        return self.__bptt_size

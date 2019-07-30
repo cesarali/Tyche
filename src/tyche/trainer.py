@@ -366,56 +366,54 @@ class TrainingRnnProcedure(BaseTrainingProcedure):
                  train_logger=None, **kwargs):
         super(TrainingRnnProcedure, self).__init__(model, loss, metric, optimizer, resume,
                                                    params, train_logger, data_loader)
+        self.bptt_size = data_loader.bptt
 
     def _train_epoch(self, epoch: int) -> Dict:
         self.model.train()
         p_bar = tqdm.tqdm(
                 desc="Training batch: ", total=self.n_train_batches, unit="batch")
-        total_loss = 0.0
-        total_rmse = 0.0
-        total_acc = 0.0
 
-        for batch_idx, (x, mark) in enumerate(self.data_loader.train):
-            self.model.rnn.init_hidden(self.batch_size)
-            num_seq = x.size()[1]
-            N = np.prod(x.size()[:-1])
-            x = x.to(self.device)
-            mark = mark.to(self.device)
-            batch_loss = 0.0
-            batch_rmse = 0.0
-            batch_acc = 0.0
-
-            for seq_ix in range(num_seq):
-                self.optimizer.zero_grad()
-                loss, y, mark_prediction = self.model.loss(x[:, seq_ix], mark[:, seq_ix])
-                loss.backward()
-                self.optimizer.step()
-
-                batch_loss += loss.item()
-                batch_rmse += self.metrics[0](y, x[:, seq_ix, :, -1]).item()
-                batch_acc += self.__accuracy(mark_prediction, mark[:, seq_ix, :, -1]).item()
-                self.model.rnn.detach()
-            total_loss += batch_loss
-            total_rmse += batch_rmse
-            total_acc += batch_acc
-            batch_loss = float(batch_loss / N)
-            batch_acc = float(batch_acc / N)
-            batch_rmse = np.sqrt(batch_rmse / N)
-            self._log_train_step(epoch, batch_idx, batch_loss, batch_rmse, batch_acc)
-            p_bar.set_postfix_str(
-                    "loss: {:5.4f}, rmse: {:5.4f}, acc: {:3.2%}".format(batch_loss, batch_rmse, batch_acc))
-            self.global_step += 1
-            p_bar.update()
+        epoch_stat = self.__new_stat()
+        for batch_idx, input in enumerate(self.data_loader.train):
+            batch_stat = self.__train_step(input, batch_idx, epoch, p_bar)
+            for k, v in batch_stat.items():
+                epoch_stat[k] += v
         p_bar.close()
+        self.__normalize_stats(self.n_train_batches, epoch_stat)
+        self.__log_epoch("train/epoch/", epoch_stat)
 
-        BN = float(self.n_train_batches * N)
-        epoch_loss = total_loss / BN
-        epoch_rmse = np.sqrt(total_rmse / BN)
-        epoch_acc = total_acc / BN
-        self.summary.add_scalar("train/loss/epoch", epoch_loss, self.global_step)
-        self.summary.add_scalar("train/rmse/epoch", epoch_rmse, self.global_step)
-        self.summary.add_scalar("train/acc/epoch", epoch_acc, self.global_step)
-        return {"loss": epoch_loss, "rmse": epoch_rmse, "acc": epoch_acc}
+        return epoch_stat
+
+    def __train_step(self, input, batch_idx, epoch, p_bar):
+        batch_stat = self.__new_stat()
+        self.model.rnn.init_hidden(self.batch_size)
+        x, mark = input
+        num_seq = x.size(1)
+        self.N = np.prod(x.size()[:-1])
+        x = x.to(self.device)
+        mark = mark.to(self.device)
+
+        for seq_ix in range(num_seq):
+            self.optimizer.zero_grad()
+            loss, y, mark_prediction = self.model.loss(x[:, seq_ix], mark[:, seq_ix])
+            loss.backward()
+            self.optimizer.step()
+
+            loss = loss.item()
+            acc = self.__accuracy(mark_prediction, mark[:, seq_ix, :, -1]).item()
+            metrics = [m(y, x[:, seq_ix, :, -1]).item() for m in self.metrics]
+            self.__update_stats(loss, metrics, acc, batch_stat)
+
+            self.model.rnn.detach()
+        batch_stat['loss'] /= float(self.N)
+        batch_stat['acc'] /= float(self.N)
+        batch_stat['RMSELoss'] /= float(num_seq)
+        self._log_train_step(epoch, batch_idx, batch_stat)
+        p_bar.set_postfix_str(
+                "loss: {:5.4f}, rmse: {:5.4f}, acc: {:3.2%}".format(batch_stat['loss'], metrics[0], batch_stat['acc']))
+        self.global_step += 1
+        p_bar.update()
+        return batch_stat
 
     def __accuracy(self, input, target):
         input = torch.argmax(input.view(-1, self.model.K))
@@ -425,38 +423,59 @@ class TrainingRnnProcedure(BaseTrainingProcedure):
 
     def _validate_epoch(self, epoch):
         self.model.eval()
-        total_loss = 0.0
-        total_rmse = 0.0
-        total_acc = 0.0
+        statistics = self.__new_stat()
         with torch.no_grad():
             p_bar = tqdm.tqdm(
-                    desc="Test batch: ",
-                    total=self.n_test_batches,
+                    desc="Validation batch: ",
+                    total=self.n_val_batches,
                     unit="batch")
             # self.model.rnn.init_hidden(self.batch_size)
+
             for batch_idx, (x, mark) in enumerate(self.data_loader.validate):
-                N = np.prod(x.size()[:-1])
+                self.N = np.prod(x.size()[:-1])
                 loss, y, mark_pred = self.model.loss(x, mark)
-                rmse = self.metric(y, x[:, :, -1])
-                acc = self.__accuracy(mark_pred, mark[:, :, -1])
-                total_loss += loss.item()
-                total_rmse += rmse.item()
-                total_rmse += acc.item()
+                loss = loss.item()
+                acc = self.__accuracy(mark_pred, mark[:, :, -1]).item()
 
-                loss /= N
-                acc /= N
-                rmse = np.sqrt(rmse / N)
+                metrics = [m(y, x[:, :, -1]).item() for m in self.metrics]
 
-                p_bar.set_postfix_str("loss: {:5.4f} rmse: {:5.4f} acc: {:3.2%}".format(loss, rmse, acc))
+                p_bar.set_postfix_str(
+                        "loss: {:5.4f} rmse: {:5.4f} acc: {:3.2%}".format(loss, metrics[0], acc))
                 p_bar.update()
-            BN = float(self.n_test_batches * N)
-            epoch_loss = total_loss / BN
-            epoch_rmse = np.sqrt(total_rmse / BN)
-            epoch_acc = total_acc / BN
+                statistics['loss'] /= float(self.N)
+                statistics['acc'] /= float(self.N)
+                self.__update_stats(loss, metrics, acc, statistics)
 
-            self._log_test_step(epoch, epoch_loss, epoch_rmse, epoch_acc)
             p_bar.close()
-        return {"loss": epoch_loss, "rmse": epoch_rmse, "acc": epoch_acc}
+
+        self.__normalize_stats(self.n_val_batches, statistics)
+        self.__log_epoch("validate/epoch/", statistics)
+        return statistics
+
+    def __update_stats(self, loss: Tuple, metrics: List[_Loss], accuracy, statistics):
+        statistics['loss'] += loss
+        statistics['acc'] += accuracy
+        for m, value in zip(self.metrics, metrics):
+            n = type(m).__name__
+            statistics[n] += value
+
+    def __new_stat(self):
+        statistics = dict()
+        statistics['loss'] = 0.0
+        statistics['acc'] = 0.0
+
+        for m in self.metrics:
+            statistics[type(m).__name__] = 0.0
+        return statistics
+
+    def __normalize_stats(self, n_batches, statistics):
+        for k in statistics.keys():
+            statistics[k] /= n_batches
+        return statistics
+
+    def __log_epoch(self, log_label, statistics):
+        for k, v in statistics.items():
+            self.summary.add_scalar(log_label + k, v, self.global_step)
 
 
 class TrainingWAE(BaseTrainingProcedure):
