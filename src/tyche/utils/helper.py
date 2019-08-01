@@ -161,7 +161,7 @@ def gumbel_softmax_sample(pi, tau):
     """
     Sample Gumbel-softmax
     """
-    y = torch.log(pi) + gumbel_sample(torch.shape(pi))
+    y = torch.log(pi) + gumbel_sample(pi.size())
     return torch.nn.functional.softmax(y / tau, dim=-1)
 
 
@@ -169,9 +169,9 @@ def gumbel_softmax(pi, tau):
     """
     Gumbel-Softmax distribution.
     Implementation from https://github.com/ericjang/gumbel-softmax.
-    pi: [batch_size, ..., n_class] class probs of categorical z
+    pi: [B, ..., n_classes] class probs of categorical z
     tau: temperature
-    Returns [B, n_classes] as a one-hot vector
+    Returns [B, ..., n_classes] as a one-hot vector
     """
     y = gumbel_softmax_sample(pi, tau)
     shape = y.size()
