@@ -147,3 +147,38 @@ def quadratures(f, a=-1, b=1, n=30):
     y = w * f(x)
     y = to.sum(scale * y, dim=-1)
     return y.type(dtype=to.float)
+
+
+def gumbel_sample(shape, epsilon=1e-20):
+    """
+    Sample Gumbel(0,1)
+    """
+    u = get_cuda(torch.rand(shape))
+    return -torch.log(-torch.log(u + epsilon) + epsilon)
+
+
+def gumbel_softmax_sample(pi, tau):
+    """
+    Sample Gumbel-softmax
+    """
+    y = torch.log(pi) + gumbel_sample(pi.size())
+    return torch.nn.functional.softmax(y / tau, dim=-1)
+
+
+def gumbel_softmax(pi, tau):
+    """
+    Gumbel-Softmax distribution.
+    Implementation from https://github.com/ericjang/gumbel-softmax.
+    pi: [B, ..., n_classes] class probs of categorical z
+    tau: temperature
+    Returns [B, ..., n_classes] as a one-hot vector
+    """
+    y = gumbel_softmax_sample(pi, tau)
+    shape = y.size()
+    _, ind = y.max(dim=-1)  # [B, ...]
+    y_hard = torch.zeros_like(y).view(-1, shape[-1])
+    y_hard.scatter_(1, ind.view(-1, 1), 1)
+    y_hard = y_hard.view(*shape)
+    return (y_hard - y).detach() + y
+
+
