@@ -1,7 +1,9 @@
+import pickle
 from abc import ABC
 
 import spacy
 from torch.utils.data.dataloader import DataLoader
+from torchtext.data.field import Field
 
 from tyche import data
 from tyche.data import datasets
@@ -14,6 +16,10 @@ def tokenizer(x):
     Create a tokenizer function
     """
     return [tok.text for tok in spacy_en.tokenizer(x) if tok.text != ' ']
+
+
+def _unpack(x):
+    return list(map(lambda i: pickle.loads(i), x))
 
 
 class ADataLoader(ABC):
@@ -29,6 +35,54 @@ class ADataLoader(ABC):
     @property
     def test(self):
         pass
+
+
+class DataLoaderRatebeerBow(ADataLoader):
+    def __init__(self, **kwargs):
+        batch_size = kwargs.get('batch_size')
+        fix_len = kwargs.pop('fix_len', None)
+
+        FIELD_TIME = Field(sequential=True, use_vocab=False, batch_first=True, include_lengths=True,
+                           fix_length=fix_len, pad_token=0)
+        FIELD_TEXT = Field(sequential=True, use_vocab=False, batch_first=True, include_lengths=True,
+                           preprocessing=_unpack,
+                           fix_length=fix_len, pad_token=0)
+
+        train, valid, test = datasets.RatebeerBow.splits('localhost', time_field=FIELD_TIME,
+                                                         text_field=FIELD_TEXT)
+
+        if fix_len == -1:
+            max_len = max([train.max_len, valid.max_len, test.max_len])
+            FIELD_TIME.fix_length = max_len
+            FIELD_TEXT.fix_length = max_len
+
+        self._train_iter, self._valid_iter, self._test_iter = data.BP.splits(
+                (train, valid, test),
+                batch_sizes=(batch_size, batch_size, len(test)),
+                sort_key=lambda x: len(x.text),
+                sort_within_batch=True,
+                repeat=False
+        )
+
+    @property
+    def train(self):
+        return self._train_iter
+
+    @property
+    def test(self):
+        return self._test_iter
+
+    @property
+    def validate(self):
+        return self._valid_iter
+
+    @property
+    def vocab(self):
+        return self.train_vocab
+
+    @property
+    def fix_len(self):
+        return self.fix_length
 
 
 class DataLoaderPTB(ADataLoader):

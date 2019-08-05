@@ -1,14 +1,13 @@
-import io
+import math
 import os
 from typing import Any
 
-import math
+import pickle
 import numpy as np
 import torch
 from torch.utils.data.dataset import Dataset
 from torchtext import data
 from torchtext.data.field import Field
-from torchtext.utils import unicode_csv_reader
 
 make_example = data.Example.fromdict
 from pymongo import MongoClient
@@ -20,16 +19,13 @@ def fix_nulls(s):
 
 
 class RatebeerBow(data.Dataset):
-    def __init__(self, text_field, **kwargs):
-        FIELD = Field(sequential=False, use_vocab=False, preprocessing=lambda x:x)
-        fields = {
-            'arrivals': [('a', FIELD), ('t', text_field)]
-        }
-        col = MongoClient()['hawkes_text']['ratebeer_by_product']
-        ###
-        c = col.find({}).limit(10)
+    def __init__(self, server: str, collection: str, time_field, text_field, **kwargs):
+
+        fields = {'time': ('time', time_field), 'text': ('text', text_field)}
+
+        col = MongoClient('mongodb://' + server)['hawkes_text'][collection]
+        c = col.find({})
         examples = [make_example(i, fields) for i in c]
-        ###
 
         if isinstance(fields, dict):
             fields, field_dict = [], fields
@@ -40,47 +36,43 @@ class RatebeerBow(data.Dataset):
                     fields.append(field)
 
         super(RatebeerBow, self).__init__(examples, fields, **kwargs)
+        self.max_len = max([len(f.time) for f in self.examples])
 
+    @classmethod
+    def splits(cls, server: str, train='ratebeer_by_user_train',
+               validation='ratebeer_by_user_validation', test='ratebeer_by_user_test',
+               **kwargs):
 
-class Ratebeer(data.Dataset):
-    def __init__(self, path, text_field, **kwargs):
-        examples = []
-        example = {}
-        FIELD = Field(sequential=False, use_vocab=False)
-        FIELD_N = Field(sequential=False, use_vocab=False, preprocessing=lambda x: -1 if isinstance(x, str) else int(x))
-        FIELD_D = Field(sequential=False, use_vocab=False, preprocessing=lambda x: -1 if x == '-' else float(x))
+        train_data = None if train is None else cls(server, train, **kwargs)
+        val_data = None if validation is None else cls(server, validation, **kwargs)
+        test_data = None if train is None else cls(server, test, **kwargs)
+        return tuple(d for d in (train_data, val_data, test_data)
+                     if d is not None)
 
-        FIELD_R = Field(sequential=False, use_vocab=False, preprocessing=lambda x: int(x.split("/")[0]))
+    @classmethod
+    def iters(cls, text_field, batch_size=32, device='cpu', root='.data',
+              vectors=None, vectors_cache=None, max_size=None, min_freq=1, **kwargs):
+        """Create iterator objects for splits of the Penn Treebank dataset.
+        This is the simplest way to use the dataset, and assumes common
+        defaults for field, vocabulary, and iterator parameters.
+        Arguments:
+            text_field: The field that will be used for text data.
+            batch_size: Batch size.
+            bptt_len: Length of sequences for backpropagation through time.
+            device: Device to create batches on. Use -1 for CPU and None for
+                the currently active GPU device.
+            root: The root directory where the data files will be stored.
+            wv_dir, wv_type, wv_dim: Passed to the Vocab constructor for the
+                text field. The word vectors are accessible as
+                train.dataset.fields['text'].vocab.vectors.
+            Remaining keyword arguments: Passed to the splits method.
+        """
+        train, val, test = cls.splits(text_field, root=root, **kwargs)
 
-        fields = {'name': ('name', FIELD),
-                  'beerId': ('beerId', FIELD_N),
-                  'brewerId': ('brewerId', FIELD_N),
-                  'ABV': ('ABV', FIELD_D),
-                  'style': ('style', FIELD),
-                  'appearance': ('appearance', FIELD_R),
-                  'aroma': ('aroma', FIELD_R),
-                  'palate': ('palate', FIELD_R),
-                  'taste': ('taste', FIELD_R),
-                  'overall': ('overall', FIELD_R),
-                  'time': ('time', FIELD_N),
-                  'profileName': ('profileName', FIELD),
-                  'text': ('text', text_field)
-                  }
-        with io.open(os.path.expanduser(path), encoding="cp1252") as f:
-            reader = unicode_csv_reader(fix_nulls(f), delimiter="\n")
-            for line in reader:
-                if not line:
-                    examples.append(make_example(example, fields))
-                    example = {}
-                else:
-                    key, value = line[0].split(': ', 1)
-                    example[key.split("/")[1]] = value
+        text_field.build_vocab(train, vectors=vectors, vectors_cache=vectors_cache, max_size=max_size,
+                               min_freq=min_freq)
 
-            # make_example = partial(make_example, field_to_index=field_to_index)
-
-            # examples = [make_example(line, fields) for line in reader]
-
-        super(Ratebeer, self).__init__()
+        return data.BucketIterator.splits((train, val, test), batch_size=batch_size, device=device)
 
 
 class PennTreebank(data.Dataset):
