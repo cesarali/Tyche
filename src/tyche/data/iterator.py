@@ -1,7 +1,7 @@
-from torchtext.data.iterator import Iterator, batch, pool
-from torchtext.data.dataset import Dataset
+import numpy as np
+import torch
 from torchtext.data.batch import Batch
-import math
+from torchtext.data.iterator import Iterator, batch, pool
 
 
 class BucketIterator(Iterator):
@@ -56,28 +56,46 @@ class BPTTIterator(Iterator):
         self.bptt_len = bptt_len
         super(BPTTIterator, self).__init__(dataset, batch_size, **kwargs)
 
-    def __len__(self):
-        return math.ceil((len(self.dataset[0].text) / self.batch_size - 1) /
-                         self.bptt_len)
+    def create_batches(self):
+        if self.sort:
+            self.batches = batch(self.data(), self.batch_size,
+                                 self.batch_size_fn)
+        else:
+            self.batches = pool(self.data(), self.batch_size,
+                                self.sort_key, self.batch_size_fn,
+                                random_shuffler=self.random_shuffler,
+                                shuffle=self.shuffle,
+                                sort_within_batch=self.sort_within_batch)
+        self.batches = filter(lambda x: len(x) == self.batch_size, self.batches)
 
     def __iter__(self):
-        text = self.dataset[0].text
-        TEXT = self.dataset.fields['text']
-        TEXT.eos_token = None
-        text = text + ([TEXT.pad_token] * int(math.ceil(len(text) / self.batch_size) *
-                                              self.batch_size - len(text)))
-        data = TEXT.numericalize(
-                [text], device=self.device)
-        data = data.view(self.batch_size, -1).t().contiguous()
-        dataset = Dataset(examples=self.dataset.examples, fields=[
-            ('text', TEXT), ('target', TEXT)])
         while True:
-            for i in range(0, len(self) * self.bptt_len, self.bptt_len):
-                self.iterations += 1
-                seq_len = min(self.bptt_len, len(data) - i - 1)
-                yield Batch.fromvars(
-                        dataset, self.batch_size,
-                        text=data[i:i + seq_len],
-                        target=data[i + 1:i + 1 + seq_len])
+            self.init_epoch()
+            for idx, minibatch in enumerate(self.batches):
+                batch = Batch(minibatch, self.dataset, self.device)
+                time, seq_len = batch.time
+                text = batch.text
+                num_windows = int(time.size(1) / self.bptt_len)
+                time = time.view(self.batch_size, num_windows, self.bptt_len)
+                text = text.view(self.batch_size, num_windows, self.bptt_len, -1)
+                f_w = seq_len / self.bptt_len
+                p_w = seq_len % self.bptt_len
+                z_w = np.clip(num_windows - f_w - 1, 0, None)
+                ###
+                f_w_m = map(lambda x: torch.ones(x, dtype=torch.int64) * self.bptt_len, f_w)
+                f_w_m = map(lambda x, y: torch.cat((x, y)), f_w_m, p_w.view(-1, 1))
+                z_w_m = map(lambda x: torch.zeros(x, dtype=torch.int64), z_w.view(-1, 1))
+                f_w_m = map(lambda x, y: torch.cat((x, y)), f_w_m, z_w_m)
+                seq_len = torch.stack(list(map(lambda x: x[:num_windows], f_w_m)))
+                ###
+                time = time.unbind(1)
+                seq_len = seq_len.unbind(1)
+                text = text.unbind(1)
+                yield (Batch.fromvars(
+                        self.dataset, self.batch_size,
+                        time=(te, l),
+                        text=te) for ti, te, l in zip(time, text, seq_len))
+
+
             if not self.repeat:
                 return

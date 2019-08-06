@@ -2,8 +2,8 @@ import pickle
 from abc import ABC
 
 import spacy
+from scipy.sparse import csr_matrix
 from torch.utils.data.dataloader import DataLoader
-from torchtext.data.field import Field
 
 from tyche import data
 from tyche.data import datasets
@@ -39,14 +39,20 @@ class ADataLoader(ABC):
 
 class DataLoaderRatebeerBow(ADataLoader):
     def __init__(self, **kwargs):
-        batch_size = kwargs.get('batch_size')
+        batch_size = kwargs.get('batch_size', 32)
         fix_len = kwargs.pop('fix_len', None)
+        bptt_len = kwargs.pop('bptt_len', 20)
+        num_features = kwargs.pop('num_features')
 
-        FIELD_TIME = Field(sequential=True, use_vocab=False, batch_first=True, include_lengths=True,
-                           fix_length=fix_len, pad_token=0)
-        FIELD_TEXT = Field(sequential=True, use_vocab=False, batch_first=True, include_lengths=True,
-                           preprocessing=_unpack,
-                           fix_length=fix_len, pad_token=0)
+        FIELD_TIME = data.BPTTField(bptt_len=bptt_len, sequential=True, use_vocab=False, batch_first=True,
+                                    include_lengths=True,
+                                    fix_length=fix_len, pad_token=0)
+        FIELD_TEXT = data.BPTTField(bptt_len=bptt_len, sequential=True, use_vocab=False, batch_first=True,
+                                    include_lengths=False,
+                                    preprocessing=_unpack,
+                                    postprocessing=lambda data, y: [list(map(lambda x: x.toarray()[0], d)) for d in
+                                                                    data],
+                                    fix_length=fix_len, pad_token=csr_matrix((1, num_features)))
 
         train, valid, test = datasets.RatebeerBow.splits('localhost', time_field=FIELD_TIME,
                                                          text_field=FIELD_TEXT)
@@ -56,12 +62,13 @@ class DataLoaderRatebeerBow(ADataLoader):
             FIELD_TIME.fix_length = max_len
             FIELD_TEXT.fix_length = max_len
 
-        self._train_iter, self._valid_iter, self._test_iter = data.BP.splits(
+        self._train_iter, self._valid_iter, self._test_iter = data.BPTTIterator.splits(
                 (train, valid, test),
                 batch_sizes=(batch_size, batch_size, len(test)),
                 sort_key=lambda x: len(x.text),
                 sort_within_batch=True,
-                repeat=False
+                repeat=False,
+                bptt_len=bptt_len
         )
 
     @property

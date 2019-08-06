@@ -24,7 +24,7 @@ class RatebeerBow(data.Dataset):
         fields = {'time': ('time', time_field), 'text': ('text', text_field)}
 
         col = MongoClient('mongodb://' + server)['hawkes_text'][collection]
-        c = col.find({})
+        c = col.find({}).limit(100)
         examples = [make_example(i, fields) for i in c]
 
         if isinstance(fields, dict):
@@ -68,9 +68,6 @@ class RatebeerBow(data.Dataset):
             Remaining keyword arguments: Passed to the splits method.
         """
         train, val, test = cls.splits(text_field, root=root, **kwargs)
-
-        text_field.build_vocab(train, vectors=vectors, vectors_cache=vectors_cache, max_size=max_size,
-                               min_freq=min_freq)
 
         return data.BucketIterator.splits((train, val, test), batch_size=batch_size, device=device)
 
