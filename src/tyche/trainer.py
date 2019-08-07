@@ -1,6 +1,7 @@
 import datetime
 import logging
 import os
+from abc import ABCMeta, abstractmethod
 from typing import Dict, Tuple, List
 
 import numpy as np
@@ -13,7 +14,7 @@ from tyche.utils import param_scheduler as p_scheduler
 from tyche.utils.helper import create_instance
 
 
-class BaseTrainingProcedure(object):
+class BaseTrainingProcedure(metaclass=ABCMeta):
 
     def __init__(self, model, loss, metrics, optimizer, resume, params, train_logger, data_loader):
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -46,6 +47,10 @@ class BaseTrainingProcedure(object):
         if resume:
             self._resume_check_point(resume)
 
+    @abstractmethod
+    def _train_step(self):
+        raise NotImplementedError
+
     def train(self):
         e_bar = tqdm.tqdm(
                 desc="Epoch: ",
@@ -63,6 +68,33 @@ class BaseTrainingProcedure(object):
         e_bar.close()
         self.best_model['name'] = self.params["name"]
         return self.best_model
+
+    def _train_epoch(self, epoch: int) -> Dict:
+        self.model.train()
+        p_bar = tqdm.tqdm(
+                desc="Training batch: ", total=self.n_train_batches, unit="batch")
+
+        epoch_stat = self._new_stat()
+        self.model.initialize_hidden_state(self.batch_size, self.device)
+        for batch_idx, input in enumerate(self.data_loader.train):
+            batch_stat = self._train_step(input, batch_idx, epoch, p_bar)
+            for k, v in batch_stat.items():
+                epoch_stat[k] += v
+        p_bar.close()
+
+        self._normalize_stats(self.n_train_batches, epoch_stat)
+        self._log_epoch("train/epoch/", epoch_stat)
+
+        return epoch_stat
+
+    def _normalize_stats(self, n_batches, statistics):
+        for k in statistics.keys():
+            statistics[k] /= n_batches
+        return statistics
+
+    def _log_epoch(self, log_label, statistics):
+        for k, v in statistics.items():
+            self.summary.add_scalar(log_label + k, v, self.global_step)
 
     def __del__(self):
         self.summary.close()
@@ -219,26 +251,8 @@ class TrainingVAE(BaseTrainingProcedure):
 
         self.loss.b_scheduler = create_instance('beta_scheduler', params['trainer']['args'])
 
-    def _train_epoch(self, epoch: int) -> Dict:
-        self.model.train()
-        p_bar = tqdm.tqdm(
-                desc="Training batch: ", total=self.n_train_batches, unit="batch")
-
-        epoch_stat = self.__new_stat()
-        self.model.initialize_hidden_state(self.batch_size, self.device)
-        for batch_idx, input in enumerate(self.data_loader.train):
-            batch_stat = self.__train_step(input, batch_idx, epoch, p_bar)
-            for k, v in batch_stat.items():
-                epoch_stat[k] += v
-        p_bar.close()
-
-        self.__normalize_stats(self.n_train_batches, epoch_stat)
-        self.__log_epoch("train/epoch/", epoch_stat)
-
-        return epoch_stat
-
-    def __train_step(self, input, batch_idx: int, epoch: int, p_bar) -> Dict:
-        batch_stat = self.__new_stat()
+    def _train_step(self, input, batch_idx: int, epoch: int, p_bar) -> Dict:
+        batch_stat = self._new_stat()
         self.optimizer.zero_grad()
         x = input.text
         x = (x[0].to(self.device), x[1])
@@ -289,7 +303,7 @@ class TrainingVAE(BaseTrainingProcedure):
 
     def _validate_epoch(self, epoch: int):
         self.model.eval()
-        statistics = self.__new_stat()
+        statistics = self._new_stat()
         with torch.no_grad():
             p_bar = tqdm.tqdm(
                     desc="Validation batch: ",
@@ -317,18 +331,10 @@ class TrainingVAE(BaseTrainingProcedure):
                                                                           statistics['kl']))
                 p_bar.update()
             p_bar.close()
-        self.__normalize_stats(self.n_val_batches, statistics)
-        self.__log_epoch("validate/epoch/", statistics)
+        self._normalize_stats(self.n_val_batches, statistics)
+        self._log_epoch("validate/epoch/", statistics)
 
         return statistics
-
-    def __normalize_stats(self, n_batches, statistics):
-        for k in statistics.keys():
-            statistics[k] /= n_batches
-
-    def __log_epoch(self, log_label, statistics):
-        for k, v in statistics.items():
-            self.summary.add_scalar(log_label + k, v, self.global_step)
 
     def __update_stats(self, vae_loss: Tuple, metrics: List[_Loss], statistics):
         batch_loss = vae_loss[1] + vae_loss[2]
@@ -343,7 +349,7 @@ class TrainingVAE(BaseTrainingProcedure):
             else:
                 statistics[n] += value / float(self.batch_size)
 
-    def __new_stat(self):
+    def _new_stat(self):
         statistics = dict()
         statistics['loss'] = 0.0
         statistics['nll'] = 0.0
@@ -354,7 +360,7 @@ class TrainingVAE(BaseTrainingProcedure):
         return statistics
 
 
-class TrainingRnnProcedure(BaseTrainingProcedure):
+class TrainingRnnHawkes(BaseTrainingProcedure):
     def __init__(self,
                  model,
                  loss,
@@ -364,29 +370,110 @@ class TrainingRnnProcedure(BaseTrainingProcedure):
                  params,
                  data_loader,
                  train_logger=None, **kwargs):
-        super(TrainingRnnProcedure, self).__init__(model, loss, metric, optimizer, resume,
-                                                   params, train_logger, data_loader)
+        super(TrainingRnnHawkes, self).__init__(model, loss, metric, optimizer, resume,
+                                                params, train_logger, data_loader)
         self.bptt_size = data_loader.bptt
 
-    def _train_epoch(self, epoch: int) -> Dict:
-        self.model.train()
-        p_bar = tqdm.tqdm(
-                desc="Training batch: ", total=self.n_train_batches, unit="batch")
+    def _train_step(self, input, batch_idx, epoch, p_bar):
+        batch_stat = self._new_stat()
+        x, mark = input
+        num_seq = x.size(1)
+        self.N = np.prod(x.size()[:-1])
+        x = x.to(self.device)
+        mark = mark.to(self.device)
 
-        epoch_stat = self.__new_stat()
-        for batch_idx, input in enumerate(self.data_loader.train):
-            batch_stat = self.__train_step(input, batch_idx, epoch, p_bar)
-            for k, v in batch_stat.items():
-                epoch_stat[k] += v
-        p_bar.close()
-        self.__normalize_stats(self.n_train_batches, epoch_stat)
-        self.__log_epoch("train/epoch/", epoch_stat)
+        for seq_ix in range(num_seq):
+            self.optimizer.zero_grad()
+            loss, y, mark_prediction = self.model.loss(x[:, seq_ix], mark[:, seq_ix])
+            loss.backward()
+            self.optimizer.step()
+            self.model.detach_history()
 
-        return epoch_stat
+            loss = loss.item()
+            acc = self.__accuracy(mark_prediction, mark[:, seq_ix, :, -1]).item()
+            metrics = [m(y, x[:, seq_ix, :, -1]).item() for m in self.metrics]
+            self.__update_stats(loss, metrics, acc, batch_stat)
 
-    def __train_step(self, input, batch_idx, epoch, p_bar):
-        batch_stat = self.__new_stat()
-        self.model.rnn.init_hidden(self.batch_size)
+        batch_stat['loss'] /= float(self.N)
+        batch_stat['acc'] /= float(self.N)
+        batch_stat['RMSELoss'] /= float(num_seq)
+        self._log_train_step(epoch, batch_idx, batch_stat)
+        p_bar.set_postfix_str(
+                "loss: {:5.4f}, rmse: {:5.4f}, acc: {:3.2%}".format(batch_stat['loss'], metrics[0], batch_stat['acc']))
+        self.global_step += 1
+        p_bar.update()
+        return batch_stat
+
+    def __accuracy(self, input, target):
+        input = torch.argmax(input.view(-1, self.model.K))
+        target = target.contiguous().view(-1)
+        correct = (input == target).sum()
+        return correct
+
+    def _validate_epoch(self, epoch):
+        self.model.eval()
+        statistics = self._new_stat()
+        with torch.no_grad():
+            p_bar = tqdm.tqdm(
+                    desc="Validation batch: ",
+                    total=self.n_val_batches,
+                    unit="batch")
+            # self.model.rnn.init_hidden(self.batch_size)
+
+            for batch_idx, (x, mark) in enumerate(self.data_loader.validate):
+                self.N = np.prod(x.size()[:-1])
+                loss, y, mark_pred = self.model.loss(x, mark)
+                loss = loss.item()
+                acc = self.__accuracy(mark_pred, mark[:, :, -1]).item()
+
+                metrics = [m(y, x[:, :, -1]).item() for m in self.metrics]
+
+                p_bar.set_postfix_str(
+                        "loss: {:5.4f} rmse: {:5.4f} acc: {:3.2%}".format(loss, metrics[0], acc))
+                p_bar.update()
+                statistics['loss'] /= float(self.N)
+                statistics['acc'] /= float(self.N)
+                self.__update_stats(loss, metrics, acc, statistics)
+
+            p_bar.close()
+
+        self._normalize_stats(self.n_val_batches, statistics)
+        self._log_epoch("validate/epoch/", statistics)
+        return statistics
+
+    def __update_stats(self, loss: Tuple, metrics: List[_Loss], accuracy, statistics):
+        statistics['loss'] += loss
+        statistics['acc'] += accuracy
+        for m, value in zip(self.metrics, metrics):
+            n = type(m).__name__
+            statistics[n] += value
+
+    def _new_stat(self):
+        statistics = dict()
+        statistics['loss'] = 0.0
+        statistics['acc'] = 0.0
+
+        for m in self.metrics:
+            statistics[type(m).__name__] = 0.0
+        return statistics
+
+
+class TrainingRnnTextHawkes(BaseTrainingProcedure):
+    def __init__(self,
+                 model,
+                 loss,
+                 metric,
+                 optimizer,
+                 resume,
+                 params,
+                 data_loader,
+                 train_logger=None, **kwargs):
+        super(TrainingRnnTextHawkes, self).__init__(model, loss, metric, optimizer, resume,
+                                                    params, train_logger, data_loader)
+        self.bptt_len = data_loader.bptt_len
+
+    def _train_step(self, input, batch_idx, epoch, p_bar):
+        batch_stat = self._new_stat()
         x, mark = input
         num_seq = x.size(1)
         self.N = np.prod(x.size()[:-1])
@@ -423,7 +510,7 @@ class TrainingRnnProcedure(BaseTrainingProcedure):
 
     def _validate_epoch(self, epoch):
         self.model.eval()
-        statistics = self.__new_stat()
+        statistics = self._new_stat()
         with torch.no_grad():
             p_bar = tqdm.tqdm(
                     desc="Validation batch: ",
@@ -448,8 +535,8 @@ class TrainingRnnProcedure(BaseTrainingProcedure):
 
             p_bar.close()
 
-        self.__normalize_stats(self.n_val_batches, statistics)
-        self.__log_epoch("validate/epoch/", statistics)
+        self._normalize_stats(self.n_val_batches, statistics)
+        self._log_epoch("validate/epoch/", statistics)
         return statistics
 
     def __update_stats(self, loss: Tuple, metrics: List[_Loss], accuracy, statistics):
@@ -459,7 +546,7 @@ class TrainingRnnProcedure(BaseTrainingProcedure):
             n = type(m).__name__
             statistics[n] += value
 
-    def __new_stat(self):
+    def _new_stat(self):
         statistics = dict()
         statistics['loss'] = 0.0
         statistics['acc'] = 0.0
@@ -467,15 +554,6 @@ class TrainingRnnProcedure(BaseTrainingProcedure):
         for m in self.metrics:
             statistics[type(m).__name__] = 0.0
         return statistics
-
-    def __normalize_stats(self, n_batches, statistics):
-        for k in statistics.keys():
-            statistics[k] /= n_batches
-        return statistics
-
-    def __log_epoch(self, log_label, statistics):
-        for k, v in statistics.items():
-            self.summary.add_scalar(log_label + k, v, self.global_step)
 
 
 class TrainingWAE(BaseTrainingProcedure):
@@ -511,28 +589,9 @@ class TrainingWAE(BaseTrainingProcedure):
 
         self._critic_optimizer = critic_optimizer
 
-    def _train_epoch(self, epoch: int) -> Dict:
-        self.model.train()
-        p_bar = tqdm.tqdm(
-                desc="Training batch: ", total=self.n_train_batches, unit="batch")
+    def _train_step(self, input, batch_idx: int, epoch: int, p_bar) -> Dict:
 
-        epoch_stat = self.__new_stat()
-        self.model.initialize_hidden_state(self.batch_size, self.device)
-
-        for batch_idx, input in enumerate(self.data_loader.train):
-            batch_stat = self.__train_step(input, batch_idx, epoch, p_bar)
-            for k, v in batch_stat.items():
-                epoch_stat[k] += v
-        p_bar.close()
-
-        self.__normalize_stats(self.n_train_batches, epoch_stat)
-        self.__log_epoch("train/epoch/", epoch_stat)
-
-        return epoch_stat
-
-    def __train_step(self, input, batch_idx: int, epoch: int, p_bar) -> Dict:
-
-        batch_stat = self.__new_stat()
+        batch_stat = self._new_stat()
 
         x = input.text
         x = (x[0].to(self.device), x[1])
@@ -614,7 +673,7 @@ class TrainingWAE(BaseTrainingProcedure):
 
     def _validate_epoch(self, epoch: int):
         self.model.eval()
-        statistics = self.__new_stat()
+        statistics = self._new_stat()
         with torch.no_grad():
             p_bar = tqdm.tqdm(
                     desc="Validation batch: ",
@@ -648,18 +707,10 @@ class TrainingWAE(BaseTrainingProcedure):
                                                                           statistics['w-distance']))
                 p_bar.update()
             p_bar.close()
-        self.__normalize_stats(self.n_val_batches, statistics)
-        self.__log_epoch("validate/epoch/", statistics)
+        self._normalize_stats(self.n_val_batches, statistics)
+        self._log_epoch("validate/epoch/", statistics)
 
         return statistics
-
-    def __normalize_stats(self, n_batches, statistics):
-        for k in statistics.keys():
-            statistics[k] /= n_batches
-
-    def __log_epoch(self, log_label, statistics):
-        for k, v in statistics.items():
-            self.summary.add_scalar(log_label + k, v, self.global_step)
 
     def __update_stats(self, wae_loss: Tuple, metrics: List[_Loss], statistics):
         batch_loss = wae_loss[1] + wae_loss[2]
@@ -674,7 +725,7 @@ class TrainingWAE(BaseTrainingProcedure):
             else:
                 statistics[n] += value / float(self.batch_size)
 
-    def __new_stat(self):
+    def _new_stat(self):
         statistics = dict()
         statistics['loss'] = 0.0
         statistics['nll'] = 0.0
@@ -709,26 +760,8 @@ class TrainingVQ(BaseTrainingProcedure):
 
         self.loss.b_scheduler = create_instance('beta_scheduler', params['trainer']['args'])
 
-    def _train_epoch(self, epoch: int) -> Dict:
-        self.model.train()
-        p_bar = tqdm.tqdm(
-                desc="Training batch: ", total=self.n_train_batches, unit="batch")
-
-        epoch_stat = self.__new_stat()
-        self.model.initialize_hidden_state(self.batch_size, self.device)
-        for batch_idx, input in enumerate(self.data_loader.train):
-            batch_stat = self.__train_step(input, batch_idx, epoch, p_bar)
-            for k, v in batch_stat.items():
-                epoch_stat[k] += v
-        p_bar.close()
-
-        self.__normalize_stats(self.n_train_batches, epoch_stat)
-        self.__log_epoch("train/epoch/", epoch_stat)
-
-        return epoch_stat
-
-    def __train_step(self, input, batch_idx: int, epoch: int, p_bar) -> Dict:
-        batch_stat = self.__new_stat()
+    def _train_step(self, input, batch_idx: int, epoch: int, p_bar) -> Dict:
+        batch_stat = self._new_stat()
         self.optimizer.zero_grad()
         x = input.text
         x = (x[0].to(self.device), x[1])
@@ -781,7 +814,7 @@ class TrainingVQ(BaseTrainingProcedure):
 
     def _validate_epoch(self, epoch: int):
         self.model.eval()
-        statistics = self.__new_stat()
+        statistics = self._new_stat()
         with torch.no_grad():
             p_bar = tqdm.tqdm(
                     desc="Validation batch: ",
@@ -809,18 +842,10 @@ class TrainingVQ(BaseTrainingProcedure):
                                                                           statistics['commit']))
                 p_bar.update()
             p_bar.close()
-        self.__normalize_stats(self.n_val_batches, statistics)
-        self.__log_epoch("validate/epoch/", statistics)
+        self._normalize_stats(self.n_val_batches, statistics)
+        self._log_epoch("validate/epoch/", statistics)
 
         return statistics
-
-    def __normalize_stats(self, n_batches, statistics):
-        for k in statistics.keys():
-            statistics[k] /= n_batches
-
-    def __log_epoch(self, log_label, statistics):
-        for k, v in statistics.items():
-            self.summary.add_scalar(log_label + k, v, self.global_step)
 
     def __update_stats(self, vae_loss: Tuple, metrics: List[_Loss], statistics):
         batch_loss = vae_loss[0]
@@ -835,7 +860,7 @@ class TrainingVQ(BaseTrainingProcedure):
             else:
                 statistics[n] += value / float(self.batch_size)
 
-    def __new_stat(self):
+    def _new_stat(self):
         statistics = dict()
         statistics['loss'] = 0.0
         statistics['vq'] = 0.0

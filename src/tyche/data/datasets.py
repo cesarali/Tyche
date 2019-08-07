@@ -24,7 +24,7 @@ class RatebeerBow(data.Dataset):
         fields = {'time': ('time', time_field), 'text': ('text', text_field)}
 
         col = MongoClient('mongodb://' + server)['hawkes_text'][collection]
-        c = col.find({}).limit(100)
+        c = col.find({}).limit(320)
         examples = [make_example(i, fields) for i in c]
 
         if isinstance(fields, dict):

@@ -39,23 +39,24 @@ class ADataLoader(ABC):
 
 class DataLoaderRatebeerBow(ADataLoader):
     def __init__(self, **kwargs):
-        batch_size = kwargs.get('batch_size', 32)
+        batch_size = kwargs.pop('batch_size', 32)
         fix_len = kwargs.pop('fix_len', None)
-        bptt_len = kwargs.pop('bptt_len', 20)
+        bptt_length = kwargs.pop('bptt_len', 20)
         num_features = kwargs.pop('num_features')
+        server = kwargs.pop('server', 'localhost')
 
-        FIELD_TIME = data.BPTTField(bptt_len=bptt_len, sequential=True, use_vocab=False, batch_first=True,
+        FIELD_TIME = data.BPTTField(bptt_len=bptt_length, sequential=True, use_vocab=False, batch_first=True,
                                     include_lengths=True,
                                     fix_length=fix_len, pad_token=0)
-        FIELD_TEXT = data.BPTTField(bptt_len=bptt_len, sequential=True, use_vocab=False, batch_first=True,
+        FIELD_TEXT = data.BPTTField(bptt_len=bptt_length, sequential=True, use_vocab=False, batch_first=True,
                                     include_lengths=False,
                                     preprocessing=_unpack,
                                     postprocessing=lambda data, y: [list(map(lambda x: x.toarray()[0], d)) for d in
                                                                     data],
                                     fix_length=fix_len, pad_token=csr_matrix((1, num_features)))
 
-        train, valid, test = datasets.RatebeerBow.splits('localhost', time_field=FIELD_TIME,
-                                                         text_field=FIELD_TEXT)
+        train, valid, test = datasets.RatebeerBow.splits(server, time_field=FIELD_TIME,
+                                                         text_field=FIELD_TEXT, **kwargs)
 
         if fix_len == -1:
             max_len = max([train.max_len, valid.max_len, test.max_len])
@@ -68,8 +69,8 @@ class DataLoaderRatebeerBow(ADataLoader):
                 sort_key=lambda x: len(x.text),
                 sort_within_batch=True,
                 repeat=False,
-                bptt_len=bptt_len
-        )
+                bptt_len=bptt_length)
+        self.bptt_length = bptt_length
 
     @property
     def train(self):
@@ -84,12 +85,12 @@ class DataLoaderRatebeerBow(ADataLoader):
         return self._valid_iter
 
     @property
-    def vocab(self):
-        return self.train_vocab
-
-    @property
     def fix_len(self):
         return self.fix_length
+
+    @property
+    def bptt_len(self):
+        return self.bptt_length
 
 
 class DataLoaderPTB(ADataLoader):
