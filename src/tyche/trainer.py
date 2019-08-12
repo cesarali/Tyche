@@ -360,6 +360,9 @@ class TrainingVAE(BaseTrainingProcedure):
         return statistics
 
 
+BaseTrainingProcedure.register(TrainingVAE)
+
+
 class TrainingRnnHawkes(BaseTrainingProcedure):
     def __init__(self,
                  model,
@@ -458,6 +461,9 @@ class TrainingRnnHawkes(BaseTrainingProcedure):
         return statistics
 
 
+BaseTrainingProcedure.register(TrainingRnnHawkes)
+
+
 class TrainingRnnTextHawkes(BaseTrainingProcedure):
     def __init__(self,
                  model,
@@ -474,15 +480,13 @@ class TrainingRnnTextHawkes(BaseTrainingProcedure):
 
     def _train_step(self, input, batch_idx, epoch, p_bar):
         batch_stat = self._new_stat()
-        x, mark = input
-        num_seq = x.size(1)
-        self.N = np.prod(x.size()[:-1])
-        x = x.to(self.device)
-        mark = mark.to(self.device)
+        num_seq = 0
 
-        for seq_ix in range(num_seq):
+        for seq_ix, data in enumerate(input):
+            x, l = data.time
+            text = data.text
             self.optimizer.zero_grad()
-            loss, y, mark_prediction = self.model.loss(x[:, seq_ix], mark[:, seq_ix])
+            loss, y, mark_prediction = self.model.loss(data)
             loss.backward()
             self.optimizer.step()
 
@@ -492,6 +496,7 @@ class TrainingRnnTextHawkes(BaseTrainingProcedure):
             self.__update_stats(loss, metrics, acc, batch_stat)
 
             self.model.rnn.detach()
+        self.N = np.prod(x.size()[:-1])
         batch_stat['loss'] /= float(self.N)
         batch_stat['acc'] /= float(self.N)
         batch_stat['RMSELoss'] /= float(num_seq)
@@ -554,6 +559,9 @@ class TrainingRnnTextHawkes(BaseTrainingProcedure):
         for m in self.metrics:
             statistics[type(m).__name__] = 0.0
         return statistics
+
+
+BaseTrainingProcedure.register(TrainingRnnTextHawkes)
 
 
 class TrainingWAE(BaseTrainingProcedure):
@@ -736,6 +744,9 @@ class TrainingWAE(BaseTrainingProcedure):
         return statistics
 
 
+BaseTrainingProcedure.register(TrainingWAE)
+
+
 class TrainingVQ(BaseTrainingProcedure):
     def __init__(self,
                  model,
@@ -879,3 +890,6 @@ def free_params(module):
 def frozen_params(module):
     for p in module.parameters():
         p.requires_grad = False
+
+
+BaseTrainingProcedure.register(TrainingVQ)

@@ -1,14 +1,12 @@
-import math
-
 import torch
 from torchtext.data import Field
 
 
 class BPTTField(Field):
     def __init__(self, bptt_len=20, **kwargs):
-        super(BPTTField, self).__init__(**kwargs)
+        super(BPTTField, self).__init__(sequential=True, batch_first=True, **kwargs)
         self.bptt_len = bptt_len
-
+        
     def pad(self, minibatch):
         """Pad a batch of examples using this field.
 
@@ -32,7 +30,6 @@ class BPTTField(Field):
         reminder = max_len % self.bptt_len
         if reminder != 0:
             max_len += (self.bptt_len - reminder)
-
         padded, lengths = [], []
         for x in minibatch:
             if self.pad_first:

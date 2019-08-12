@@ -2,12 +2,10 @@ import math
 import os
 from typing import Any
 
-import pickle
 import numpy as np
 import torch
 from torch.utils.data.dataset import Dataset
 from torchtext import data
-from torchtext.data.field import Field
 
 make_example = data.Example.fromdict
 from pymongo import MongoClient
@@ -24,7 +22,7 @@ class RatebeerBow(data.Dataset):
         fields = {'time': ('time', time_field), 'text': ('text', text_field)}
 
         col = MongoClient('mongodb://' + server)['hawkes_text'][collection]
-        c = col.find({}).limit(320)
+        c = col.find({}).limit(100)
         examples = [make_example(i, fields) for i in c]
 
         if isinstance(fields, dict):

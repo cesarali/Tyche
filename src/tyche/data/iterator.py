@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+from torchtext.data import Dataset, Field
 from torchtext.data.batch import Batch
 from torchtext.data.iterator import Iterator, batch, pool
 
@@ -73,29 +74,39 @@ class BPTTIterator(Iterator):
             self.init_epoch()
             for idx, minibatch in enumerate(self.batches):
                 batch = Batch(minibatch, self.dataset, self.device)
-                time, seq_len = batch.time
-                text = batch.text
-                num_windows = int(time.size(1) / self.bptt_len)
-                time = time.view(self.batch_size, num_windows, self.bptt_len)
-                text = text.view(self.batch_size, num_windows, self.bptt_len, -1)
-                f_w = seq_len / self.bptt_len
-                p_w = seq_len % self.bptt_len
-                z_w = np.clip(num_windows - f_w - 1, 0, None)
-                ###
-                f_w_m = map(lambda x: torch.ones(x, dtype=torch.int64) * self.bptt_len, f_w)
-                f_w_m = map(lambda x, y: torch.cat((x, y)), f_w_m, p_w.view(-1, 1))
-                z_w_m = map(lambda x: torch.zeros(x, dtype=torch.int64), z_w.view(-1, 1))
-                f_w_m = map(lambda x, y: torch.cat((x, y)), f_w_m, z_w_m)
-                seq_len = torch.stack(list(map(lambda x: x[:num_windows], f_w_m)))
-                ###
-                time = time.unbind(1)
-                seq_len = seq_len.unbind(1)
-                text = text.unbind(1)
+                if self._iterations_this_epoch > idx:
+                    continue
+                self.iterations += 1
+                self._iterations_this_epoch += 1
+                seq_len, text, time = self.__series_2_bptt(batch)
+                dataset = Dataset(examples=self.dataset.examples, fields=[
+                    ('time', self.dataset.fields['time']), ('text', self.dataset.fields['text']),
+                    ('target_time', Field(use_vocab=False)), ('target_text', Field(use_vocab=False))])
                 yield (Batch.fromvars(
-                        self.dataset, self.batch_size,
-                        time=(te, l),
-                        text=te) for ti, te, l in zip(time, text, seq_len))
-
+                        dataset, self.batch_size,
+                        time=(ti[:, :, :2], l),
+                        text=te[:, :, 0],
+                        target_time=ti[:, :, -1],
+                        target_text=te[:, :, 1]) for ti, te, l in zip(time, text, seq_len))
 
             if not self.repeat:
                 return
+
+    def __series_2_bptt(self, batch):
+        time, seq_len = batch.time
+        text = batch.text
+        num_windows = int(time.size(1) / self.bptt_len)
+        time = time.view(self.batch_size, num_windows, self.bptt_len, -1)
+        text = text.view(self.batch_size, num_windows, self.bptt_len, 2, -1)
+        f_w = seq_len / self.bptt_len
+        p_w = seq_len % self.bptt_len
+        z_w = np.clip(num_windows - f_w - 1, 0, None)
+        f_w_m = map(lambda x: torch.ones(x, dtype=torch.int64) * self.bptt_len, f_w)
+        f_w_m = map(lambda x, y: torch.cat((x, y)), f_w_m, p_w.view(-1, 1))
+        z_w_m = map(lambda x: torch.zeros(x, dtype=torch.int64), z_w.view(-1, 1))
+        f_w_m = map(lambda x, y: torch.cat((x, y)), f_w_m, z_w_m)
+        seq_len = torch.stack(list(map(lambda x: x[:num_windows], f_w_m)))
+        time = time.unbind(1)
+        seq_len = seq_len.unbind(1)
+        text = text.unbind(1)
+        return seq_len, text, time

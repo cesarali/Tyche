@@ -1,5 +1,6 @@
 import pickle
 from abc import ABC
+from typing import List
 
 import spacy
 from scipy.sparse import csr_matrix
@@ -19,7 +20,17 @@ def tokenizer(x):
 
 
 def _unpack(x):
-    return list(map(lambda i: pickle.loads(i), x))
+    return list(map(lambda i, y: [pickle.loads(i), pickle.loads(y)], x[1:], x[2:]))
+
+
+def _delta(x: list) -> List[list]:
+    dt = [x1 - x2 for (x1, x2) in zip(x[1:], x[:-1])]
+    dy = dt[1:]
+    return [[x1, x2, y] for (x1, x2, y) in zip(x[1:-1], dt, dy)]
+
+
+def _expand_bow_vector(data, y):
+    return [list(map(lambda x: [x[0].toarray()[0], x[1].toarray()[0]], d)) for d in data]
 
 
 class ADataLoader(ABC):
@@ -42,21 +53,22 @@ class DataLoaderRatebeerBow(ADataLoader):
         batch_size = kwargs.pop('batch_size', 32)
         fix_len = kwargs.pop('fix_len', None)
         bptt_length = kwargs.pop('bptt_len', 20)
-        num_features = kwargs.pop('num_features')
+        bow_size = kwargs.pop('bow_size', 2000)
         server = kwargs.pop('server', 'localhost')
 
-        FIELD_TIME = data.BPTTField(bptt_len=bptt_length, sequential=True, use_vocab=False, batch_first=True,
-                                    include_lengths=True,
-                                    fix_length=fix_len, pad_token=0)
-        FIELD_TEXT = data.BPTTField(bptt_len=bptt_length, sequential=True, use_vocab=False, batch_first=True,
+        FIELD_TIME = data.BPTTField(bptt_len=bptt_length, use_vocab=False,
+                                    include_lengths=True, pad_token=[0, 0, 0],
+                                    preprocessing=_delta)
+        FIELD_TEXT = data.BPTTField(bptt_len=bptt_length, use_vocab=False,
                                     include_lengths=False,
-                                    preprocessing=_unpack,
-                                    postprocessing=lambda data, y: [list(map(lambda x: x.toarray()[0], d)) for d in
-                                                                    data],
-                                    fix_length=fix_len, pad_token=csr_matrix((1, num_features)))
+                                    pad_token=[csr_matrix((1, bow_size)), csr_matrix((1, bow_size))],
+                                    preprocessing=_unpack, postprocessing=_expand_bow_vector)
 
-        train, valid, test = datasets.RatebeerBow.splits(server, time_field=FIELD_TIME,
-                                                         text_field=FIELD_TEXT, **kwargs)
+        train_col = 'ratebeer_by_user_train_' + str(bow_size)
+        val_col = 'ratebeer_by_user_validation_' + str(bow_size)
+        test_col = 'ratebeer_by_user_test_' + str(bow_size)
+        train, valid, test = datasets.RatebeerBow.splits(server, time_field=FIELD_TIME, text_field=FIELD_TEXT,
+                                                         train=train_col, validation=val_col, test=test_col, **kwargs)
 
         if fix_len == -1:
             max_len = max([train.max_len, valid.max_len, test.max_len])
@@ -64,13 +76,10 @@ class DataLoaderRatebeerBow(ADataLoader):
             FIELD_TEXT.fix_length = max_len
 
         self._train_iter, self._valid_iter, self._test_iter = data.BPTTIterator.splits(
-                (train, valid, test),
-                batch_sizes=(batch_size, batch_size, len(test)),
-                sort_key=lambda x: len(x.text),
-                sort_within_batch=True,
-                repeat=False,
-                bptt_len=bptt_length)
+                (train, valid, test), batch_sizes=(batch_size, batch_size, len(test)), sort_key=lambda x: len(x.text),
+                sort_within_batch=True, repeat=False, bptt_len=bptt_length)
         self.bptt_length = bptt_length
+        self.bow_s = bow_size
 
     @property
     def train(self):
@@ -91,6 +100,10 @@ class DataLoaderRatebeerBow(ADataLoader):
     @property
     def bptt_len(self):
         return self.bptt_length
+
+    @property
+    def bow_size(self):
+        return self.bow_s
 
 
 class DataLoaderPTB(ADataLoader):
