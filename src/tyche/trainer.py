@@ -777,8 +777,8 @@ class TrainingVQ(BaseTrainingProcedure):
         x = input.text
         x = (x[0].to(self.device), x[1])
 
-        target = x[0][:, 1:].view(-1)
-        logits, z_e_x, z_q_x = self.model(x)
+        target = x[0][:, 1:].contiguous().view(-1)
+        logits, z_e_x, z_q_x, indices = self.model(x)
 
         vae_loss = self.loss(logits, target, z_e_x, z_q_x, self.global_step)
 
@@ -788,8 +788,8 @@ class TrainingVQ(BaseTrainingProcedure):
         metrics = [m(logits, target).item() for m in self.metrics]
         vae_loss = [l.item() for l in vae_loss]
         prediction = logits.argmax(dim=1)
-        prediction = prediction.view(self.batch_size, -1)
-        target = target.view(self.batch_size, -1)
+        prediction = prediction.view(-1, self.batch_size)
+        target = target.view(-1, self.batch_size)
         self.__update_stats(vae_loss, metrics, batch_stat)
         self._log_train_step(epoch, batch_idx, batch_stat)
         if self.global_step % 20 == 0:
@@ -818,7 +818,7 @@ class TrainingVQ(BaseTrainingProcedure):
         r = field.reverse(prediction[:, :10])
         log = []
         for i, j in zip(t, r):
-            log.append("Org: " + "\n\n Rec: ".join([i, j]))
+            log.append("Org: "+ "\n\n Rec: ".join([i, j]))
 
         log = "\n\n ---------------------------------------------------------------- \n\n".join(log)
         self.summary.add_text(tag + 'reconstruction', log, self.global_step)
@@ -835,15 +835,15 @@ class TrainingVQ(BaseTrainingProcedure):
                 self.model.detach_history()
                 x = batch.text
                 x = (x[0].to(self.device), x[1])
-                target = x[0][1:].view(-1)
-                logits, z_e_x, z_q_x = self.model(x)
+                target = x[0][:, 1:].contiguous().view(-1)
+                logits, z_e_x, z_q_x, indices = self.model(x)
                 vae_loss = self.loss(logits, target, z_e_x, z_q_x, self.global_step)
                 metrics = [m(logits, target).item() for m in self.metrics]
                 vae_loss = [l.item() for l in vae_loss]
 
                 prediction = logits.argmax(dim=1)
-                prediction = prediction.view(self.batch_size, -1)
-                target = target.view(self.batch_size, -1)
+                prediction = prediction.view(-1, self.batch_size)
+                target = target.view(-1, self.batch_size)
                 if self.global_step % 20 == 0:
                     self.__log_reconstruction('validate/batch/', prediction, target)
                 self.__update_stats(vae_loss, metrics, statistics)
