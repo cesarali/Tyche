@@ -483,8 +483,8 @@ class TrainingRnnTextHawkes(BaseTrainingProcedure):
         num_seq = 0
 
         for seq_ix, data in enumerate(input):
-            x, l = data.time
-            text = data.text
+            x_time, l = data.time
+            x_text = data.text
             self.optimizer.zero_grad()
             loss, y, mark_prediction = self.model.loss(data)
             loss.backward()
@@ -492,11 +492,11 @@ class TrainingRnnTextHawkes(BaseTrainingProcedure):
 
             loss = loss.item()
             acc = self.__accuracy(mark_prediction, mark[:, seq_ix, :, -1]).item()
-            metrics = [m(y, x[:, seq_ix, :, -1]).item() for m in self.metrics]
+            metrics = [m(y, x_time[:, seq_ix, :, -1]).item() for m in self.metrics]
             self.__update_stats(loss, metrics, acc, batch_stat)
 
             self.model.rnn.detach()
-        self.N = np.prod(x.size()[:-1])
+        self.N = np.prod(x_time.size()[:-1])
         batch_stat['loss'] /= float(self.N)
         batch_stat['acc'] /= float(self.N)
         batch_stat['RMSELoss'] /= float(num_seq)
@@ -818,7 +818,7 @@ class TrainingVQ(BaseTrainingProcedure):
         r = field.reverse(prediction[:, :10])
         log = []
         for i, j in zip(t, r):
-            log.append("Org: "+ "\n\n Rec: ".join([i, j]))
+            log.append("Org: " + "\n\n Rec: ".join([i, j]))
 
         log = "\n\n ---------------------------------------------------------------- \n\n".join(log)
         self.summary.add_text(tag + 'reconstruction', log, self.global_step)

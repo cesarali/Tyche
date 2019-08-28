@@ -3,8 +3,10 @@ from abc import ABC
 from typing import List
 
 import spacy
+import torch
 from scipy.sparse import csr_matrix
 from torch.utils.data.dataloader import DataLoader
+from torchtext.data.field import NestedField
 
 from tyche import data
 from tyche.data import datasets
@@ -21,6 +23,10 @@ def tokenizer(x):
 
 def _unpack(x):
     return list(map(lambda i, y: [pickle.loads(i), pickle.loads(y)], x[1:], x[2:]))
+
+
+def _unpack_text(x):
+    return list(map(lambda i, y: [i, y], x[1:], x[2:]))
 
 
 def _delta(x: list) -> List[list]:
@@ -48,6 +54,62 @@ class ADataLoader(ABC):
         pass
 
 
+class DataLoaderRatebeer(ADataLoader):
+    def __init__(self, **kwargs):
+        batch_size = kwargs.pop('batch_size', 32)
+        fix_len = kwargs.pop('fix_len', None)
+        bptt_length = kwargs.pop('bptt_len', 20)
+        server = kwargs.pop('server', 'localhost')
+        data_collection_name = kwargs.pop('data_collection')
+
+        FIELD_TIME = data.BPTTField(bptt_len=bptt_length, use_vocab=False,
+                                    include_lengths=True, pad_token=[0, 0, 0],
+                                    preprocessing=_delta)
+        TEXT = data.BPTTField(bptt_len=20, init_token='<sos>', eos_token='<eos>', unk_token='UNK',
+                              tokenize=tokenizer)
+        NESTED_FIELD = NestedField(TEXT, use_vocab=False, preprocessing=_unpack_text)
+
+        train_col = f'{data_collection_name}_train'
+        val_col = f'{data_collection_name}_validation'
+        test_col = f'{data_collection_name}_test'
+        train, valid, test = datasets.RatebeerBow.splits(server, time_field=FIELD_TIME, text_field=NESTED_FIELD,
+                                                         train=train_col, validation=val_col, test=test_col, **kwargs)
+
+        if fix_len == -1:
+            max_len = max([train.max_len, valid.max_len, test.max_len])
+            FIELD_TIME.fix_length = max_len
+            TEXT.fix_length = max_len
+
+        self._train_iter, self._valid_iter, self._test_iter = data.BPTTIterator.splits(
+                (train, valid, test), batch_sizes=(batch_size, batch_size, len(test)), sort_key=lambda x: len(x.time),
+                sort_within_batch=True, repeat=False, bptt_len=bptt_length)
+        self.bptt_length = bptt_length
+
+    @property
+    def train(self):
+        return self._train_iter
+
+    @property
+    def test(self):
+        return self._test_iter
+
+    @property
+    def validate(self):
+        return self._valid_iter
+
+    @property
+    def fix_len(self):
+        return self.fix_length
+
+    @property
+    def bptt_len(self):
+        return self.bptt_length
+
+    @property
+    def bow_size(self):
+        return self.bow_s
+
+
 class DataLoaderRatebeerBow(ADataLoader):
     def __init__(self, **kwargs):
         batch_size = kwargs.pop('batch_size', 32)
@@ -62,7 +124,8 @@ class DataLoaderRatebeerBow(ADataLoader):
         FIELD_TEXT = data.BPTTField(bptt_len=bptt_length, use_vocab=False,
                                     include_lengths=False,
                                     pad_token=[csr_matrix((1, bow_size)), csr_matrix((1, bow_size))],
-                                    preprocessing=_unpack, postprocessing=_expand_bow_vector)
+                                    preprocessing=_unpack, postprocessing=_expand_bow_vector,
+                                    dtype=torch.float32)
 
         train_col = 'ratebeer_by_user_train_' + str(bow_size)
         val_col = 'ratebeer_by_user_validation_' + str(bow_size)
@@ -76,7 +139,7 @@ class DataLoaderRatebeerBow(ADataLoader):
             FIELD_TEXT.fix_length = max_len
 
         self._train_iter, self._valid_iter, self._test_iter = data.BPTTIterator.splits(
-                (train, valid, test), batch_sizes=(batch_size, batch_size, len(test)), sort_key=lambda x: len(x.text),
+                (train, valid, test), batch_sizes=(batch_size, batch_size, len(test)), sort_key=lambda x: len(x.time),
                 sort_within_batch=True, repeat=False, bptt_len=bptt_length)
         self.bptt_length = bptt_length
         self.bow_s = bow_size
