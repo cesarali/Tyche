@@ -835,6 +835,7 @@ class TrainingVQ(BaseTrainingProcedure):
                 self.model.detach_history()
                 x = batch.text
                 x = (x[0].to(self.device), x[1])
+                batch_size = x[0].shape[0]
                 target = x[0][:, 1:].contiguous().view(-1)
                 logits, z_e_x, z_q_x, indices = self.model(x)
                 vae_loss = self.loss(logits, target, z_e_x, z_q_x, self.global_step)
@@ -842,8 +843,8 @@ class TrainingVQ(BaseTrainingProcedure):
                 vae_loss = [l.item() for l in vae_loss]
 
                 prediction = logits.argmax(dim=1)
-                prediction = prediction.view(-1, self.batch_size)
-                target = target.view(-1, self.batch_size)
+                prediction = prediction.view(-1, batch_size)
+                target = target.view(-1, batch_size)
                 if self.global_step % 20 == 0:
                     self.__log_reconstruction('validate/batch/', prediction, target)
                 self.__update_stats(vae_loss, metrics, statistics)
