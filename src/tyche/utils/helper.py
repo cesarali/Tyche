@@ -69,6 +69,17 @@ def get_class_nonlinearity(name):
     return clazz
 
 
+def create_cost_function(name, *args):
+    """
+    Returns instance of cost fuctions (from torch.nn)
+    """
+    module = import_module("torch.nn")
+    clazz = getattr(module, name)
+    instance = clazz(*args)
+
+    return instance
+
+
 def load_params(path):
     """Loads experiment parameters from json file.
 
