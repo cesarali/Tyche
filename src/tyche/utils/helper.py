@@ -48,6 +48,27 @@ def create_instance(name, params, *args):
     return instance
 
 
+def create_nonlinearity(name):
+    """
+    Returns instance of nonlinearity class (from torch.nn)
+    """
+    module = import_module("torch.nn")
+    clazz = getattr(module, name)
+    instance = clazz()
+
+    return instance
+
+
+def get_class_nonlinearity(name):
+    """
+    Returns nonlinearity class (from torch.nn)
+    """
+    module = import_module("torch.nn")
+    clazz = getattr(module, name)
+
+    return clazz
+
+
 def load_params(path):
     """Loads experiment parameters from json file.
 
