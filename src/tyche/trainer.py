@@ -103,7 +103,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         gpus = params.get("gpus", [])
         if len(gpus) > 0:
             assert torch.cuda.is_available(), "No GPU's available"
-            device = torch.device("cuda:" + gpus[0])
+            device = torch.device("cuda:" + str(gpus[0]))
         else:
             device = torch.device("cpu")
         return device
