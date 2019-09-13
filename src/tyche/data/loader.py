@@ -65,8 +65,8 @@ class DataLoaderRatebeer(ADataLoader):
         FIELD_TIME = data.BPTTField(bptt_len=bptt_length, use_vocab=False,
                                     include_lengths=True, pad_token=[0, 0, 0],
                                     preprocessing=_delta)
-        TEXT = data.BPTTField(bptt_len=20, init_token='<sos>', eos_token='<eos>', unk_token='UNK',
-                              tokenize=tokenizer)
+        TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>', unk_token='UNK',
+                                    tokenize=tokenizer, batch_first=True)
         NESTED_FIELD = NestedField(TEXT, use_vocab=False, preprocessing=_unpack_text)
 
         train_col = f'{data_collection_name}_train'
