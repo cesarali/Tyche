@@ -37,6 +37,60 @@ class RatebeerBow(data.Dataset):
         self.max_len = max([len(f.time) for f in self.examples])
 
     @classmethod
+    def splits(cls, server: str, train='ratebeer_by_user_train_2000',
+               validation='ratebeer_by_user_validation_2000', test='ratebeer_by_user_test_2000',
+               **kwargs):
+
+        train_data = None if train is None else cls(server, train, **kwargs)
+        val_data = None if validation is None else cls(server, validation, **kwargs)
+        test_data = None if train is None else cls(server, test, **kwargs)
+        return tuple(d for d in (train_data, val_data, test_data)
+                     if d is not None)
+
+    @classmethod
+    def iters(cls, text_field, batch_size=32, device='cpu', root='.data',
+              vectors=None, vectors_cache=None, max_size=None, min_freq=1, **kwargs):
+        """Create iterator objects for splits of the Penn Treebank dataset.
+        This is the simplest way to use the dataset, and assumes common
+        defaults for field, vocabulary, and iterator parameters.
+        Arguments:
+            text_field: The field that will be used for text data.
+            batch_size: Batch size.
+            bptt_len: Length of sequences for backpropagation through time.
+            device: Device to create batches on. Use -1 for CPU and None for
+                the currently active GPU device.
+            root: The root directory where the data files will be stored.
+            wv_dir, wv_type, wv_dim: Passed to the Vocab constructor for the
+                text field. The word vectors are accessible as
+                train.dataset.fields['text'].vocab.vectors.
+            Remaining keyword arguments: Passed to the splits method.
+        """
+        train, val, test = cls.splits(text_field, root=root, **kwargs)
+
+        return data.BucketIterator.splits((train, val, test), batch_size=batch_size, device=device)
+
+
+class Ratebeer(data.Dataset):
+    def __init__(self, server: str, collection: str, time_field, text_field, **kwargs):
+
+        fields = {'time': ('time', time_field), 'text': ('text', text_field)}
+
+        col = MongoClient('mongodb://' + server)['hawkes_text'][collection]
+        c = col.find({}).limit(100)
+        examples = [make_example(i, fields) for i in c]
+
+        if isinstance(fields, dict):
+            fields, field_dict = [], fields
+            for field in field_dict.values():
+                if isinstance(field, list):
+                    fields.extend(field)
+                else:
+                    fields.append(field)
+
+        super(Ratebeer, self).__init__(examples, fields, **kwargs)
+        self.max_len = max([len(f.time) for f in self.examples])
+
+    @classmethod
     def splits(cls, server: str, train='ratebeer_by_user_train',
                validation='ratebeer_by_user_validation', test='ratebeer_by_user_test',
                **kwargs):

@@ -73,11 +73,20 @@ class BPTTIterator(Iterator):
         while True:
             self.init_epoch()
             for idx, minibatch in enumerate(self.batches):
+                if self.sort_within_batch:
+                    # NOTE: `rnn.pack_padded_sequence` requires that a minibatch
+                    # be sorted by decreasing order, which requires reversing
+                    # relative to typical sort keys
+                    if self.sort:
+                        minibatch.reverse()
+                    else:
+                        minibatch.sort(key=self.sort_key, reverse=True)
                 batch = Batch(minibatch, self.dataset, self.device)
                 if self._iterations_this_epoch > idx:
                     continue
                 self.iterations += 1
                 self._iterations_this_epoch += 1
+
                 seq_len, text, time = self.__series_2_bptt(batch)
                 dataset = Dataset(examples=self.dataset.examples, fields=[
                     ('time', self.dataset.fields['time']), ('text', self.dataset.fields['text']),
@@ -101,6 +110,7 @@ class BPTTIterator(Iterator):
         f_w = seq_len / self.bptt_len
         p_w = seq_len % self.bptt_len
         z_w = np.clip(num_windows - f_w - 1, 0, None)
+
         f_w_m = map(lambda x: torch.ones(x, dtype=torch.int64) * self.bptt_len, f_w)
         f_w_m = map(lambda x, y: torch.cat((x, y)), f_w_m, p_w.view(-1, 1))
         z_w_m = map(lambda x: torch.zeros(x, dtype=torch.int64), z_w.view(-1, 1))
