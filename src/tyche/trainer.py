@@ -153,8 +153,6 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
 
         file_name = os.path.join(self.checkpoint_dir,
                                  "checkpoint-epoch{}.pth".format(epoch))
-        # param_file_name = os.path.join(self.checkpoint_dir, "hyperparameter.json")
-        # self._save_model_parameters(param_file_name)
         self.t_logger.info("Saving checkpoint: {} ...".format(file_name))
         self.__save_model(file_name, epoch=epoch)
 
