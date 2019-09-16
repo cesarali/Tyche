@@ -7,6 +7,7 @@ from typing import Dict, Tuple, List
 import numpy as np
 import torch
 import tqdm
+import json
 from tensorboardX import SummaryWriter
 from torch.nn.modules.loss import _Loss
 
@@ -133,6 +134,14 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         }
         torch.save(state, file_name)
 
+    def _save_model_parameters(self, file_name):
+        """
+        Args:
+            model_directory:
+        """
+        with open(file_name, "w") as f:
+            json.dump(self.params, f, indent=4)
+
     def _save_check_point(self, epoch: int) -> None:
         """
 
@@ -144,6 +153,8 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
 
         file_name = os.path.join(self.checkpoint_dir,
                                  "checkpoint-epoch{}.pth".format(epoch))
+        # param_file_name = os.path.join(self.checkpoint_dir, "hyperparameter.json")
+        # self._save_model_parameters(param_file_name)
         self.t_logger.info("Saving checkpoint: {} ...".format(file_name))
         self.__save_model(file_name, epoch=epoch)
 
