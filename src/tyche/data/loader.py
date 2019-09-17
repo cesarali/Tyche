@@ -57,6 +57,10 @@ class ADataLoader(ABC):
 class DataLoaderRatebeer(ADataLoader):
     def __init__(self, **kwargs):
         batch_size = kwargs.pop('batch_size', 32)
+        path_to_vectors = kwargs.pop('path_to_vectors')
+        emb_dim = kwargs.pop('emb_dim')
+        voc_size = kwargs.pop('voc_size', None)
+        min_freq = kwargs.pop('min_freq', 1)
         fix_len = kwargs.pop('fix_len', None)
         bptt_length = kwargs.pop('bptt_len', 20)
         server = kwargs.pop('server', 'localhost')
@@ -66,8 +70,8 @@ class DataLoaderRatebeer(ADataLoader):
                                     include_lengths=True, pad_token=[0, 0, 0],
                                     preprocessing=_delta)
         TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>', unk_token='UNK',
-                                    tokenize=tokenizer, batch_first=True)
-        NESTED_FIELD = NestedField(TEXT, use_vocab=False, preprocessing=_unpack_text)
+                                    tokenize=tokenizer, batch_first=True, use_vocab=True)
+        NESTED_FIELD = NestedField(TEXT, use_vocab=False)
 
         train_col = f'{data_collection_name}_train'
         val_col = f'{data_collection_name}_validation'
@@ -84,6 +88,10 @@ class DataLoaderRatebeer(ADataLoader):
                 (train, valid, test), batch_sizes=(batch_size, batch_size, len(test)), sort_key=lambda x: len(x.time),
                 sort_within_batch=True, repeat=False, bptt_len=bptt_length)
         self.bptt_length = bptt_length
+        NESTED_FIELD.build_vocab(train, vectors=emb_dim, vectors_cache=path_to_vectors, max_size=voc_size,
+                                 min_freq=min_freq)
+        self.train_vocab = NESTED_FIELD.vocab
+        self.fix_length = NESTED_FIELD.fix_length
 
     @property
     def train(self):
@@ -104,10 +112,6 @@ class DataLoaderRatebeer(ADataLoader):
     @property
     def bptt_len(self):
         return self.bptt_length
-
-    @property
-    def bow_size(self):
-        return self.bow_s
 
 
 class DataLoaderRatebeerBow(ADataLoader):
