@@ -21,22 +21,22 @@ def tokenizer(x):
     return [tok.text for tok in spacy_en.tokenizer(x) if tok.text != ' ']
 
 
-def _unpack(x):
+def unpack(x):
     return list(map(lambda i, y: [pickle.loads(i), pickle.loads(y)], x[1:], x[2:]))
 
 
-def _unpack_text(x):
+def unpack_text(x):
     return list(map(lambda i, y: [i, y], x[1:], x[2:]))
 
 
-def _delta(x: list) -> List[list]:
+def delta(x: list) -> List[list]:
     dt = [x1 - x2 for (x1, x2) in zip(x[1:], x[:-1])]
     dy = dt[1:]
     return [[x1, x2, y] for (x1, x2, y) in zip(x[1:-1], dt, dy)]
 
 
-def _expand_bow_vector(data, y):
-    return [list(map(lambda x: [x[0].toarray()[0], x[1].toarray()[0]], d)) for d in data]
+def expand_bow_vector(input, y):
+    return [list(map(lambda x: [x[0].toarray()[0], x[1].toarray()[0]], d)) for d in input]
 
 
 class ADataLoader(ABC):
@@ -68,7 +68,7 @@ class DataLoaderRatebeer(ADataLoader):
 
         FIELD_TIME = data.BPTTField(bptt_len=bptt_length, use_vocab=False,
                                     include_lengths=True, pad_token=[0, 0, 0],
-                                    preprocessing=_delta)
+                                    preprocessing=delta)
         TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>', unk_token='UNK',
                                     tokenize=tokenizer, batch_first=True, use_vocab=True)
         NESTED_FIELD = NestedField(TEXT, use_vocab=False)
@@ -119,16 +119,16 @@ class DataLoaderRatebeerBow(ADataLoader):
         batch_size = kwargs.pop('batch_size', 32)
         fix_len = kwargs.pop('fix_len', None)
         bptt_length = kwargs.pop('bptt_len', 20)
-        bow_size = kwargs.pop('bow_size', 2000)
+        bow_size = kwargs.get('bow_size', 2000)
         server = kwargs.pop('server', 'localhost')
 
         FIELD_TIME = data.BPTTField(bptt_len=bptt_length, use_vocab=False,
                                     include_lengths=True, pad_token=[0, 0, 0],
-                                    preprocessing=_delta)
+                                    preprocessing=delta)
         FIELD_TEXT = data.BPTTField(bptt_len=bptt_length, use_vocab=False,
                                     include_lengths=False,
                                     pad_token=[csr_matrix((1, bow_size)), csr_matrix((1, bow_size))],
-                                    preprocessing=_unpack, postprocessing=_expand_bow_vector,
+                                    preprocessing=unpack, postprocessing=expand_bow_vector,
                                     dtype=torch.float32)
 
         train_col = 'ratebeer_by_user_train_' + str(bow_size)

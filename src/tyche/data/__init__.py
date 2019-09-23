@@ -1,4 +1,4 @@
 from .field import ReversibleField, BPTTField
-from .iterator import BucketIterator, Iterator, BPTTIterator
+from .iterator import BucketIterator, Iterator, BPTTIterator, BPTTPointIterator
 
-__all__ = ["ReversibleField", "BPTTField", "BucketIterator", "Iterator", "BPTTIterator"]
+__all__ = ["ReversibleField", "BPTTField", "BucketIterator", "Iterator", "BPTTIterator", "BPTTPointIterator"]

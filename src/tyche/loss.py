@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 from torch import nn as nn
-from torch.nn.modules.loss import CrossEntropyLoss, weak_module, weak_script_method, _Loss
+from torch.nn.modules.loss import CrossEntropyLoss, _Loss
 
 from tyche.utils import param_scheduler as p_scheduler
 
@@ -23,7 +23,6 @@ def kullback_leibler(mean, sigma, reduction='mean'):
         return skl
 
 
-@weak_module
 class ELBO(CrossEntropyLoss):
     r"""This criterion combines :func:`nn.LogSoftmax` and :func:`nn.NLLLoss` in one single class.
 
@@ -115,7 +114,6 @@ class ELBO(CrossEntropyLoss):
         else:
             self.b_scheduler = beta_scheduler
 
-    @weak_script_method
     def forward(self, input, target, mean, sigma, step):
         CE = super(ELBO, self).forward(input, target)
         KL = kullback_leibler(mean, sigma, reduction=self.reduction)
@@ -127,7 +125,6 @@ class ELBO(CrossEntropyLoss):
         return loss, CE, KL, beta
 
 
-@weak_module
 class Perplexity(CrossEntropyLoss):
     __constants__ = ['weight', 'ignore_index', 'reduction']
 
@@ -135,14 +132,12 @@ class Perplexity(CrossEntropyLoss):
                  reduce=None):
         super(Perplexity, self).__init__(weight, size_average, ignore_index, reduce, 'mean')
 
-    @weak_script_method
     def forward(self, input, target):
         loss = super(Perplexity, self).forward(input, target)
 
         return torch.exp(loss)
 
 
-@weak_module
 class VQ(CrossEntropyLoss):
 
     def __init__(self, weight=None, size_average=None, ignore_index=-100,
@@ -153,7 +148,6 @@ class VQ(CrossEntropyLoss):
         else:
             self.b_scheduler = beta_scheduler
 
-    @weak_script_method
     def forward(self, input, target, z_e_x, z_q_x, step):
 
         # Reconstruction loss
@@ -168,9 +162,6 @@ class VQ(CrossEntropyLoss):
         return loss, loss_rec, loss_vq, loss_commit
 
 
-
-
-@weak_module
 class WAELoss(CrossEntropyLoss):
     """
     Wasserstein Autoencoder Loss
@@ -181,7 +172,6 @@ class WAELoss(CrossEntropyLoss):
                  reduce=None, reduction='mean'):
         super(WAELoss, self).__init__(weight, size_average, ignore_index, reduce, reduction)
 
-    @weak_script_method
     def forward(self, input, target, distance, step):
         CE = super(WAELoss, self).forward(input, target)
         beta = torch.tensor(self.b_scheduler(step))
@@ -192,7 +182,7 @@ class WAELoss(CrossEntropyLoss):
 
         return loss, CE, distance, beta
 
-@weak_module
+
 class RMSELoss(_Loss):
     r"""Creates a criterion that measures the mean squared error (squared L2 norm) between
     each element in the input :math:`x` and target :math:`y`.
@@ -255,6 +245,5 @@ class RMSELoss(_Loss):
     def __init__(self, size_average=None, reduce=None, reduction='mean'):
         super(RMSELoss, self).__init__(size_average, reduce, reduction)
 
-    @weak_script_method
     def forward(self, input, target):
         return torch.sqrt(F.mse_loss(input, target, reduction=self.reduction))

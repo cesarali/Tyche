@@ -19,7 +19,7 @@ def fix_nulls(s):
 class RatebeerBow(data.Dataset):
     def __init__(self, server: str, collection: str, time_field, text_field, **kwargs):
 
-        fields = {'time': ('time', time_field), 'text': ('text', text_field)}
+        fields = {'time': ('time', time_field), 'bow': ('bow', text_field)}
 
         col = MongoClient('mongodb://' + server)['hawkes_text'][collection]
         c = col.find({}).limit(100)
@@ -70,14 +70,23 @@ class RatebeerBow(data.Dataset):
         return data.BucketIterator.splits((train, val, test), batch_size=batch_size, device=device)
 
 
-class Ratebeer(data.Dataset):
-    def __init__(self, server: str, collection: str, time_field, text_field, **kwargs):
-
-        fields = {'time': ('time', time_field), 'text': ('text', text_field)}
-
+class RatebeerBow2Seq(data.Dataset):
+    def __init__(self, server: str, collection: str, time_field, text_field, bow_field, **kwargs):
+        bow_size = kwargs.pop('bow_size')
+        fields = {'time': ('time', time_field), 'text': ('text', text_field), 'bow': ('bow', bow_field)}
+        collection_name_bow = f"{collection}_{bow_size}"
+        col_bow = MongoClient('mongodb://' + server)['hawkes_text'][collection_name_bow]
         col = MongoClient('mongodb://' + server)['hawkes_text'][collection]
-        c = col.find({}).limit(100)
-        examples = [make_example(i, fields) for i in c]
+        cursor_text = col.find({}).limit(100)
+        cursor_bow = col_bow.find({}).limit(100)
+        ###
+        print(cursor_text)
+        examples = []
+        for bow, text in zip(cursor_bow, cursor_text):
+            example = {**bow, **text}
+            examples.append(make_example(example, fields))
+        ###
+        examples = [make_example(i, fields) for i in cursor_text]
 
         if isinstance(fields, dict):
             fields, field_dict = [], fields
@@ -87,7 +96,7 @@ class Ratebeer(data.Dataset):
                 else:
                     fields.append(field)
 
-        super(Ratebeer, self).__init__(examples, fields, **kwargs)
+        super(RatebeerBow2Seq, self).__init__(examples, fields, **kwargs)
         self.max_len = max([len(f.time) for f in self.examples])
 
     @classmethod
