@@ -147,7 +147,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
 
         :param epoch:
         :returns:
-        :rtype:
+        :rtype:^^
 
         """
 

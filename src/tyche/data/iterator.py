@@ -182,7 +182,7 @@ class BPTTIterator(Iterator):
                     continue
                 self.iterations += 1
                 self._iterations_this_epoch += 1
-
+                # should we have many batches or we should have one long batch with many windows
                 seq_len, text, time = self.__series_2_bptt(batch)
                 dataset = Dataset(examples=self.dataset.examples, fields=[
                     ('time', self.dataset.fields['time']), ('text', self.dataset.fields['text']),

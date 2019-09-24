@@ -75,19 +75,17 @@ class RatebeerBow2Seq(data.Dataset):
         bow_size = kwargs.pop('bow_size')
         fields = {'time': ('time', time_field), 'text': ('text', text_field), 'bow': ('bow', bow_field)}
         collection_name_bow = f"{collection}_{bow_size}"
-        col_bow = MongoClient('mongodb://' + server)['hawkes_text'][collection_name_bow]
-        col = MongoClient('mongodb://' + server)['hawkes_text'][collection]
+        db = MongoClient('mongodb://' + server)['hawkes_text']
+        col_bow = db[collection_name_bow]
+        col = db[collection]
         cursor_text = col.find({}).limit(100)
         cursor_bow = col_bow.find({}).limit(100)
-        ###
-        print(cursor_text)
+
         examples = []
         for bow, text in zip(cursor_bow, cursor_text):
             example = {**bow, **text}
             examples.append(make_example(example, fields))
-        ###
-        examples = [make_example(i, fields) for i in cursor_text]
-
+        
         if isinstance(fields, dict):
             fields, field_dict = [], fields
             for field in field_dict.values():

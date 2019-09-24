@@ -21,12 +21,16 @@ def tokenizer(x):
     return [tok.text for tok in spacy_en.tokenizer(x) if tok.text != ' ']
 
 
-def unpack(x):
+def unpack_bow(x):
     return list(map(lambda i, y: [pickle.loads(i), pickle.loads(y)], x[1:], x[2:]))
 
 
+def unpack_bow2seq(x):
+    return list(map(lambda i: pickle.loads(i), x[1:-1]))
+
+
 def unpack_text(x):
-    return list(map(lambda i, y: [i, y], x[1:], x[2:]))
+    return x[2:]
 
 
 def delta(x: list) -> List[list]:
@@ -36,7 +40,7 @@ def delta(x: list) -> List[list]:
 
 
 def expand_bow_vector(input, y):
-    return [list(map(lambda x: [x[0].toarray()[0], x[1].toarray()[0]], d)) for d in input]
+    return [list(map(lambda x: x.toarray()[0], d)) for d in input]
 
 
 class ADataLoader(ABC):
@@ -63,35 +67,43 @@ class DataLoaderRatebeer(ADataLoader):
         min_freq = kwargs.pop('min_freq', 1)
         fix_len = kwargs.pop('fix_len', None)
         bptt_length = kwargs.pop('bptt_len', 20)
+        bow_size = kwargs.get('bow_size')
         server = kwargs.pop('server', 'localhost')
         data_collection_name = kwargs.pop('data_collection')
 
         FIELD_TIME = data.BPTTField(bptt_len=bptt_length, use_vocab=False,
                                     include_lengths=True, pad_token=[0, 0, 0],
                                     preprocessing=delta)
-        TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>', unk_token='UNK',
-                                    tokenize=tokenizer, batch_first=True, use_vocab=True)
-        NESTED_FIELD = NestedField(TEXT, use_vocab=False)
+        FIELD_BOW = data.BPTTField(bptt_len=bptt_length, use_vocab=False,
+                                   include_lengths=False,
+                                   pad_token=csr_matrix((1, bow_size)),
+                                   preprocessing=unpack_bow2seq, postprocessing=expand_bow_vector,
+                                   dtype=torch.float32)
 
+        FIELD_TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>', unk_token='UNK',
+                                          tokenize=tokenizer, batch_first=True, use_vocab=True, is_target=True)
+        NESTED_TEXT_FIELD = NestedField(FIELD_TEXT, use_vocab=False, preprocessing=unpack_text)
         train_col = f'{data_collection_name}_train'
         val_col = f'{data_collection_name}_validation'
         test_col = f'{data_collection_name}_test'
-        train, valid, test = datasets.RatebeerBow.splits(server, time_field=FIELD_TIME, text_field=NESTED_FIELD,
-                                                         train=train_col, validation=val_col, test=test_col, **kwargs)
+        train, valid, test = datasets.RatebeerBow2Seq.splits(server, time_field=FIELD_TIME,
+                                                             text_field=NESTED_TEXT_FIELD, bow_field=FIELD_BOW,
+                                                             train=train_col, validation=val_col, test=test_col,
+                                                             **kwargs)
 
         if fix_len == -1:
             max_len = max([train.max_len, valid.max_len, test.max_len])
             FIELD_TIME.fix_length = max_len
-            TEXT.fix_length = max_len
+            FIELD_TEXT.fix_length = max_len
 
         self._train_iter, self._valid_iter, self._test_iter = data.BPTTIterator.splits(
                 (train, valid, test), batch_sizes=(batch_size, batch_size, len(test)), sort_key=lambda x: len(x.time),
                 sort_within_batch=True, repeat=False, bptt_len=bptt_length)
         self.bptt_length = bptt_length
-        NESTED_FIELD.build_vocab(train, vectors=emb_dim, vectors_cache=path_to_vectors, max_size=voc_size,
-                                 min_freq=min_freq)
-        self.train_vocab = NESTED_FIELD.vocab
-        self.fix_length = NESTED_FIELD.fix_length
+        NESTED_TEXT_FIELD.build_vocab(train, vectors=emb_dim, vectors_cache=path_to_vectors, max_size=voc_size,
+                                      min_freq=min_freq)
+        self.train_vocab = NESTED_TEXT_FIELD.vocab
+        self.fix_length = NESTED_TEXT_FIELD.fix_length
 
     @property
     def train(self):
@@ -128,7 +140,7 @@ class DataLoaderRatebeerBow(ADataLoader):
         FIELD_TEXT = data.BPTTField(bptt_len=bptt_length, use_vocab=False,
                                     include_lengths=False,
                                     pad_token=[csr_matrix((1, bow_size)), csr_matrix((1, bow_size))],
-                                    preprocessing=unpack, postprocessing=expand_bow_vector,
+                                    preprocessing=unpack_bow, postprocessing=expand_bow_vector,
                                     dtype=torch.float32)
 
         train_col = 'ratebeer_by_user_train_' + str(bow_size)
