@@ -6,7 +6,6 @@ import spacy
 import torch
 from scipy.sparse import csr_matrix
 from torch.utils.data.dataloader import DataLoader
-from torchtext.data.field import NestedField
 
 from tyche import data
 from tyche.data import datasets
@@ -81,8 +80,9 @@ class DataLoaderRatebeer(ADataLoader):
                                    dtype=torch.float32)
 
         FIELD_TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>', unk_token='UNK',
-                                          tokenize=tokenizer, batch_first=True, use_vocab=True, is_target=True)
-        NESTED_TEXT_FIELD = NestedField(FIELD_TEXT, use_vocab=False, preprocessing=unpack_text)
+                                          tokenize=tokenizer, batch_first=True, use_vocab=True)
+        NESTED_TEXT_FIELD = data.NestedBPTTField(FIELD_TEXT, bptt_length=bptt_length, use_vocab=False,
+                                                 preprocessing=unpack_text, include_lengths=True)
         train_col = f'{data_collection_name}_train'
         val_col = f'{data_collection_name}_validation'
         test_col = f'{data_collection_name}_test'

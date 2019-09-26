@@ -78,14 +78,14 @@ class RatebeerBow2Seq(data.Dataset):
         db = MongoClient('mongodb://' + server)['hawkes_text']
         col_bow = db[collection_name_bow]
         col = db[collection]
-        cursor_text = col.find({}).limit(100)
-        cursor_bow = col_bow.find({}).limit(100)
+        cursor_text = col.find({}).limit(32)
+        cursor_bow = col_bow.find({}).limit(32)
 
         examples = []
         for bow, text in zip(cursor_bow, cursor_text):
             example = {**bow, **text}
             examples.append(make_example(example, fields))
-        
+
         if isinstance(fields, dict):
             fields, field_dict = [], fields
             for field in field_dict.values():
