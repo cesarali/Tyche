@@ -322,7 +322,8 @@ class TrainingVAE(BaseTrainingProcedure):
                 self.model.detach_history()
                 x = batch.text
                 x = (x[0].to(self.device), x[1])
-                target = x[0][1:].view(-1)
+                # target = x[0][1:].view(-1)
+                target = x[0][:, 1:].contiguous().view(-1)
                 logits, m, sig = self.model(x)
                 vae_loss = self.loss(logits, target, m, sig, self.global_step)
                 metrics = [m(logits, target).item() for m in self.metrics]
