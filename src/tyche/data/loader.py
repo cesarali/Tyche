@@ -196,7 +196,7 @@ class DataLoaderPTB(ADataLoader):
         fix_len = kwargs.pop('fix_len', None)
 
         # Defining fields
-        TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>', unk_token='UNK', lower=True,
+        TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>', lower=True,
                                     tokenize=tokenizer,
                                     include_lengths=True, fix_length=fix_len, batch_first=True)
         train, valid, test = datasets.PennTreebank.splits(TEXT, root=path_to_data)
@@ -248,7 +248,7 @@ class DataLoaderWiki2(ADataLoader):
         fix_len = kwargs.pop('fix_len', None)
 
         # Defining fields
-        TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>', unk_token='UNK',
+        TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>',
                                     tokenize=tokenizer,
                                     include_lengths=True, fix_length=fix_len, batch_first=True)
         train, valid, test = datasets.WikiText2.splits(TEXT, root=path_to_data)
@@ -301,7 +301,7 @@ class DataLoaderWiki103(ADataLoader):
         fix_len = kwargs.pop('fix_len', None)
 
         # Defining fields
-        TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>', unk_token='UNK',
+        TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>',
                                     tokenize=tokenizer,
                                     include_lengths=True, fix_length=fix_len, batch_first=True)
         train, valid, test = datasets.WikiText103.splits(TEXT, root=path_to_data)

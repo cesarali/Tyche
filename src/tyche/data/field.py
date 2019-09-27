@@ -1,8 +1,56 @@
 import torch
-from torchtext.data import Field, NestedField
+from torchtext.data import Field, NestedField, Dataset
 
 
-class NestedBPTTField(NestedField):
+class BPTTField(Field):
+    def __init__(self, bptt_len=20, **kwargs):
+        super(BPTTField, self).__init__(sequential=True, batch_first=True, **kwargs)
+        self.bptt_len = bptt_len
+
+    def pad(self, minibatch):
+        """Pad a batch of examples using this field.
+
+        Pads to self.fix_length if provided, otherwise pads to the length of
+        the longest example in the batch. Prepends self.init_token and appends
+        self.eos_token if those attributes are not None. Returns a tuple of the
+        padded list and a list containing lengths of each example if
+        `self.include_lengths` is `True` and `self.sequential` is `True`, else just
+        returns the padded list. If `self.sequential` is `False`, no padding is applied.
+        """
+        minibatch = list(minibatch)
+        if not self.sequential:
+            return minibatch
+
+        if self.fix_length is None:
+            max_len = max(len(x) for x in minibatch)
+        else:
+            max_len = self.fix_length + (
+                self.init_token, self.eos_token).count(None) - 2
+
+        reminder = max_len % self.bptt_len
+        if reminder != 0:
+            max_len += (self.bptt_len - reminder)
+        padded, lengths = [], []
+        for x in minibatch:
+            if self.pad_first:
+                padded.append(
+                        [self.pad_token] * max(0, max_len - len(x)) +
+                        ([] if self.init_token is None else [self.init_token]) +
+                        list(x[-max_len:] if self.truncate_first else x[:max_len]) +
+                        ([] if self.eos_token is None else [self.eos_token]))
+            else:
+                padded.append(
+                        ([] if self.init_token is None else [self.init_token]) +
+                        list(x[-max_len:] if self.truncate_first else x[:max_len]) +
+                        ([] if self.eos_token is None else [self.eos_token]) +
+                        [self.pad_token] * max(0, max_len - len(x)))
+            lengths.append(len(padded[-1]) - max(0, max_len - len(x)))
+        if self.include_lengths:
+            return (padded, lengths)
+        return padded
+
+
+class NestedBPTTField(BPTTField):
     """A nested field.
 
     A nested field holds another field (called *nesting field*), accepts an untokenized
@@ -54,8 +102,14 @@ class NestedBPTTField(NestedField):
                  include_lengths=False, pad_token='<pad>',
                  pad_first=False, truncate_first=False):
 
+        if isinstance(nesting_field, NestedField):
+            raise ValueError('nesting field must not be another NestedField')
+        if nesting_field.include_lengths:
+            raise ValueError('nesting field cannot have include_lengths=True')
+
+        if nesting_field.sequential:
+            pad_token = nesting_field.pad_token
         super(NestedBPTTField, self).__init__(
-                nesting_field,
                 use_vocab=use_vocab,
                 init_token=init_token,
                 eos_token=eos_token,
@@ -63,13 +117,35 @@ class NestedBPTTField(NestedField):
                 dtype=dtype,
                 preprocessing=preprocessing,
                 postprocessing=postprocessing,
+                lower=nesting_field.lower,
                 tokenize=tokenize,
                 pad_token=pad_token,
+                unk_token=nesting_field.unk_token,
                 pad_first=pad_first,
                 truncate_first=truncate_first,
                 include_lengths=include_lengths
         )
+        self.nesting_field = nesting_field
+        # in case the user forget to do that
+        self.nesting_field.batch_first = True
         self.bptt_length = bptt_length
+
+    def preprocess(self, xs):
+        """Preprocess a single example.
+
+        Firstly, tokenization and the supplied preprocessing pipeline is applied. Since
+        this field is always sequential, the result is a list. Then, each element of
+        the list is preprocessed using ``self.nesting_field.preprocess`` and the resulting
+        list is returned.
+
+        Arguments:
+            xs (list or str): The input to preprocess.
+
+        Returns:
+            list: The preprocessed list.
+        """
+        return [self.nesting_field.preprocess(x)
+                for x in super(NestedBPTTField, self).preprocess(xs)]
 
     def pad(self, minibatch):
         """Pad a batch of examples using this field.
@@ -115,7 +191,7 @@ class NestedBPTTField(NestedField):
         """
         minibatch = list(minibatch)
         if not self.nesting_field.sequential:
-            return super(NestedField, self).pad(minibatch)
+            return super(NestedBPTTField, self).pad(minibatch)
 
         # Save values of attributes to be monkeypatched
         old_pad_token = self.pad_token
@@ -125,9 +201,6 @@ class NestedBPTTField(NestedField):
         # Monkeypatch the attributes
         if self.nesting_field.fix_length is None:
             max_len = max(len(xs) for ex in minibatch for xs in ex)
-            reminder = max_len % self.bptt_length
-            if reminder != 0:
-                max_len += (self.bptt_length - reminder)
             fix_len = max_len + 2 - (self.nesting_field.init_token,
                                      self.nesting_field.eos_token).count(None)
             self.nesting_field.fix_length = fix_len
@@ -142,7 +215,7 @@ class NestedBPTTField(NestedField):
         old_include_lengths = self.include_lengths
         self.include_lengths = True
         self.nesting_field.include_lengths = True
-        padded, sentence_lengths = super(NestedField, self).pad(minibatch)
+        padded, sentence_lengths = super(NestedBPTTField, self).pad(minibatch)
         padded_with_lengths = [self.nesting_field.pad(ex) for ex in padded]
         word_lengths = []
         final_padded = []
@@ -176,53 +249,84 @@ class NestedBPTTField(NestedField):
             return padded, sentence_lengths, word_lengths
         return padded
 
+    def build_vocab(self, *args, **kwargs):
+        """Construct the Vocab object for nesting field and combine it with this field's vocab.
 
-class BPTTField(Field):
-    def __init__(self, bptt_len=20, **kwargs):
-        super(BPTTField, self).__init__(sequential=True, batch_first=True, **kwargs)
-        self.bptt_len = bptt_len
-
-    def pad(self, minibatch):
-        """Pad a batch of examples using this field.
-
-        Pads to self.fix_length if provided, otherwise pads to the length of
-        the longest example in the batch. Prepends self.init_token and appends
-        self.eos_token if those attributes are not None. Returns a tuple of the
-        padded list and a list containing lengths of each example if
-        `self.include_lengths` is `True` and `self.sequential` is `True`, else just
-        returns the padded list. If `self.sequential` is `False`, no padding is applied.
+        Arguments:
+            Positional arguments: Dataset objects or other iterable data
+                sources from which to construct the Vocab object that
+                represents the set of possible values for the nesting field. If
+                a Dataset object is provided, all columns corresponding
+                to this field are used; individual columns can also be
+                provided directly.
+            Remaining keyword arguments: Passed to the constructor of Vocab.
         """
-        minibatch = list(minibatch)
-        if not self.sequential:
-            return minibatch
-
-        if self.fix_length is None:
-            max_len = max(len(x) for x in minibatch)
-        else:
-            max_len = self.fix_length + (
-                self.init_token, self.eos_token).count(None) - 2
-
-        reminder = max_len % self.bptt_len
-        if reminder != 0:
-            max_len += (self.bptt_len - reminder)
-        padded, lengths = [], []
-        for x in minibatch:
-            if self.pad_first:
-                padded.append(
-                        [self.pad_token] * max(0, max_len - len(x)) +
-                        ([] if self.init_token is None else [self.init_token]) +
-                        list(x[-max_len:] if self.truncate_first else x[:max_len]) +
-                        ([] if self.eos_token is None else [self.eos_token]))
+        sources = []
+        for arg in args:
+            if isinstance(arg, Dataset):
+                sources.extend(
+                        [getattr(arg, name) for name, field in arg.fields.items()
+                         if field is self]
+                )
             else:
-                padded.append(
-                        ([] if self.init_token is None else [self.init_token]) +
-                        list(x[-max_len:] if self.truncate_first else x[:max_len]) +
-                        ([] if self.eos_token is None else [self.eos_token]) +
-                        [self.pad_token] * max(0, max_len - len(x)))
-            lengths.append(len(padded[-1]) - max(0, max_len - len(x)))
+                sources.append(arg)
+
+        flattened = []
+        for source in sources:
+            flattened.extend(source)
+        old_vectors = None
+        old_unk_init = None
+        old_vectors_cache = None
+        if "vectors" in kwargs.keys():
+            old_vectors = kwargs["vectors"]
+            kwargs["vectors"] = None
+        if "unk_init" in kwargs.keys():
+            old_unk_init = kwargs["unk_init"]
+            kwargs["unk_init"] = None
+        if "vectors_cache" in kwargs.keys():
+            old_vectors_cache = kwargs["vectors_cache"]
+            kwargs["vectors_cache"] = None
+        # just build vocab and does not load vector
+        self.nesting_field.build_vocab(*flattened, **kwargs)
+        super(NestedBPTTField, self).build_vocab()
+        self.vocab.extend(self.nesting_field.vocab)
+        self.vocab.freqs = self.nesting_field.vocab.freqs.copy()
+        if old_vectors is not None:
+            self.vocab.load_vectors(old_vectors,
+                                    unk_init=old_unk_init, cache=old_vectors_cache)
+
+        self.nesting_field.vocab = self.vocab
+
+    def numericalize(self, arrs, device=None):
+        """Convert a padded minibatch into a variable tensor.
+
+        Each item in the minibatch will be numericalized independently and the resulting
+        tensors will be stacked at the first dimension.
+
+        Arguments:
+            arr (List[List[str]]): List of tokenized and padded examples.
+            device (str or torch.device): A string or instance of `torch.device`
+                specifying which device the Variables are going to be created on.
+                If left as default, the tensors will be created on cpu. Default: None.
+        """
+        numericalized = []
+        self.nesting_field.include_lengths = False
         if self.include_lengths:
-            return (padded, lengths)
-        return padded
+            arrs, sentence_lengths, word_lengths = arrs
+
+        for arr in arrs:
+            numericalized_ex = self.nesting_field.numericalize(
+                    arr, device=device)
+            numericalized.append(numericalized_ex)
+        padded_batch = torch.stack(numericalized)
+
+        self.nesting_field.include_lengths = True
+        if self.include_lengths:
+            sentence_lengths = \
+                torch.tensor(sentence_lengths, dtype=self.dtype, device=device)
+            word_lengths = torch.tensor(word_lengths, dtype=self.dtype, device=device)
+            return (padded_batch, sentence_lengths, word_lengths)
+        return padded_batch
 
 
 class ReversibleField(Field):
