@@ -1,5 +1,5 @@
 from .field import ReversibleField, BPTTField, NestedBPTTField
-from .iterator import BucketIterator, Iterator, BPTTIterator, BPTTPointIterator
+from .iterator import Iterator, BPTTIterator, BPTTPointIterator
 
-__all__ = ["ReversibleField", "BPTTField", "NestedBPTTField", "BucketIterator", "Iterator", "BPTTIterator",
+__all__ = ["ReversibleField", "BPTTField", "NestedBPTTField", "Iterator", "BPTTIterator",
            "BPTTPointIterator"]

@@ -5,7 +5,7 @@ from typing import List
 import spacy
 import torch
 from scipy.sparse import csr_matrix
-from torch.utils.data.dataloader import DataLoader
+from torchtext.data.iterator import BucketIterator
 
 from tyche import data
 from tyche.data import datasets
@@ -79,7 +79,7 @@ class DataLoaderRatebeer(ADataLoader):
                                    preprocessing=unpack_bow2seq, postprocessing=expand_bow_vector,
                                    dtype=torch.float32)
 
-        FIELD_TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>', unk_token='UNK',
+        FIELD_TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>',
                                           tokenize=tokenizer, batch_first=True, use_vocab=True)
         NESTED_TEXT_FIELD = data.NestedBPTTField(FIELD_TEXT, bptt_length=bptt_length, use_vocab=False,
                                                  preprocessing=unpack_text, include_lengths=True)
@@ -204,7 +204,7 @@ class DataLoaderPTB(ADataLoader):
         if fix_len == -1:
             TEXT.fix_length = max([train.max_len, valid.max_len, test.max_len])
 
-        self._train_iter, self._valid_iter, self._test_iter = data.BucketIterator.splits(
+        self._train_iter, self._valid_iter, self._test_iter = BucketIterator.splits(
                 (train, valid, test),
                 batch_sizes=(batch_size, batch_size, len(test)),
                 sort_key=lambda x: len(x.text),
@@ -341,25 +341,3 @@ class DataLoaderWiki103(ADataLoader):
     @property
     def fix_len(self):
         return self.fix_length
-
-
-class BasicEventDataLoader(ADataLoader):
-    def __init__(self, **kwargs):
-        data_path = kwargs.pop('data_path')
-        self.__bptt_size = kwargs.pop('bptt_size')
-        train_data = datasets.BasicEventDataset(data_path, bptt_size=self.__bptt_size)
-        test_data = datasets.BasicEventDataset(data_path, train=False)
-        self.__train_data_loader = DataLoader(train_data, **kwargs)
-        self.__test_data_loader = DataLoader(test_data, **kwargs)
-
-    @property
-    def train(self):
-        return self.__train_data_loader
-
-    @property
-    def validate(self):
-        return self.__test_data_loader
-
-    @property
-    def bptt(self):
-        return self.__bptt_size

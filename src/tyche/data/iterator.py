@@ -2,27 +2,7 @@ import numpy as np
 import torch
 from torchtext.data import Dataset, Field
 from torchtext.data.batch import Batch
-from torchtext.data.iterator import Iterator, batch, pool
-
-
-class BucketIterator(Iterator):
-    """Defines an iterator that batches examples of similar lengths together.
-
-    Minimizes amount of padding needed while producing freshly shuffled
-    batches for each new epoch. See pool for the bucketing procedure used.
-    """
-
-    def create_batches(self):
-        if self.sort:
-            self.batches = batch(self.data(), self.batch_size,
-                                 self.batch_size_fn)
-        else:
-            self.batches = pool(self.data(), self.batch_size,
-                                self.sort_key, self.batch_size_fn,
-                                random_shuffler=self.random_shuffler,
-                                shuffle=self.shuffle,
-                                sort_within_batch=self.sort_within_batch)
-        self.batches = filter(lambda x: len(x) == self.batch_size, self.batches)
+from torchtext.data.iterator import Iterator
 
 
 class BPTTPointIterator(Iterator):
@@ -57,18 +37,6 @@ class BPTTPointIterator(Iterator):
         self.bptt_len = bptt_len
         super(BPTTPointIterator, self).__init__(dataset, batch_size, **kwargs)
 
-    def create_batches(self):
-        if self.sort:
-            self.batches = batch(self.data(), self.batch_size,
-                                 self.batch_size_fn)
-        else:
-            self.batches = pool(self.data(), self.batch_size,
-                                self.sort_key, self.batch_size_fn,
-                                random_shuffler=self.random_shuffler,
-                                shuffle=self.shuffle,
-                                sort_within_batch=self.sort_within_batch)
-        self.batches = filter(lambda x: len(x) == self.batch_size, self.batches)
-
     def __iter__(self):
         while True:
             self.init_epoch()
@@ -86,24 +54,24 @@ class BPTTPointIterator(Iterator):
                     continue
                 self.iterations += 1
                 self._iterations_this_epoch += 1
-
-                seq_len, time = self.__series_2_bptt(batch)
+                batch_size: int = len(batch)
+                seq_len, time = self.__series_2_bptt(batch, batch_size)
                 dataset = Dataset(examples=self.dataset.examples, fields=[
                     ('time', self.dataset.fields['time'])])
 
                 yield (Batch.fromvars(
-                        dataset, self.batch_size,
+                        dataset, batch_size,
                         time=(ti, l)) for ti, l in zip(time, seq_len))
 
                 if not self.repeat:
                     return
 
-    def __series_2_bptt(self, batch):
+    def __series_2_bptt(self, batch: Batch, batch_size: int):
         time, seq_len = batch.time
         seq_len = seq_len.type(torch.int32).numpy()
 
         num_windows = int(time.size(1) / self.bptt_len)
-        time = time.view(self.batch_size, num_windows, self.bptt_len, -1)
+        time = time.view(batch_size, num_windows, self.bptt_len, -1)
 
         f_w = seq_len / self.bptt_len
         f_w = f_w.astype(np.int)
@@ -153,18 +121,6 @@ class BPTTIterator(Iterator):
         self.bptt_len = bptt_len
         super(BPTTIterator, self).__init__(dataset, batch_size, **kwargs)
 
-    def create_batches(self):
-        if self.sort:
-            self.batches = batch(self.data(), self.batch_size,
-                                 self.batch_size_fn)
-        else:
-            self.batches = pool(self.data(), self.batch_size,
-                                self.sort_key, self.batch_size_fn,
-                                random_shuffler=self.random_shuffler,
-                                shuffle=self.shuffle,
-                                sort_within_batch=self.sort_within_batch)
-        self.batches = filter(lambda x: len(x) == self.batch_size, self.batches)
-
     def __iter__(self):
         while True:
             self.init_epoch()
@@ -183,26 +139,30 @@ class BPTTIterator(Iterator):
                 self.iterations += 1
                 self._iterations_this_epoch += 1
                 # should we have many batches or we should have one long batch with many windows
-                seq_len, text, time = self.__series_2_bptt(batch)
+                batch_size: int = len(batch)
+                seq_len, text, time, bow = self.__series_2_bptt(batch, batch_size)
                 dataset = Dataset(examples=self.dataset.examples, fields=[
-                    ('time', self.dataset.fields['time']), ('text', self.dataset.fields['text']),
+                    ('time', self.dataset.fields['time']), ('bow', self.dataset.fields['bow']),
                     ('target_time', Field(use_vocab=False)), ('target_text', Field(use_vocab=False))])
                 yield (Batch.fromvars(
-                        dataset, self.batch_size,
-                        time=(ti[:, :, :2], l),
-                        text=te[:, :, 0],
-                        target_time=ti[:, :, -1],
-                        target_text=te[:, :, 1]) for ti, te, l in zip(time, text, seq_len))
+                        dataset, batch_size,
+                        time=(t[:, :, :2], l),
+                        bow=b,
+                        target_time=t[:, :, -1],
+                        target_text=(te, sl)) for t, b, te, sl, l in zip(time, bow, text[0], text[1], seq_len))
 
             if not self.repeat:
                 return
 
-    def __series_2_bptt(self, batch):
+    def __series_2_bptt(self, batch: Batch, batch_size: int):
         time, seq_len = batch.time
-        text = batch.text
+        text, seq_len, sentence_len = batch.text
+        bow = batch.bow
         num_windows = int(time.size(1) / self.bptt_len)
-        time = time.view(self.batch_size, num_windows, self.bptt_len, -1)
-        text = text.view(self.batch_size, num_windows, self.bptt_len, 2, -1)
+        time = time.view(batch_size, num_windows, self.bptt_len, -1)
+        bow = bow.view(batch_size, num_windows, self.bptt_len, -1)
+        text = text.view(batch_size, num_windows, self.bptt_len, -1)
+        sentence_len = sentence_len.view(batch_size, num_windows, self.bptt_len)
         f_w = seq_len / self.bptt_len
         p_w = seq_len % self.bptt_len
         z_w = np.clip(num_windows - f_w - 1, 0, None)
@@ -214,5 +174,6 @@ class BPTTIterator(Iterator):
         seq_len = torch.stack(list(map(lambda x: x[:num_windows], f_w_m)))
         time = time.unbind(1)
         seq_len = seq_len.unbind(1)
-        text = text.unbind(1)
-        return seq_len, text, time
+        bow = bow.unbind(1)
+        text = (text.unbind(1), sentence_len.unbind(1))
+        return seq_len, text, time, bow

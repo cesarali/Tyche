@@ -1,10 +1,3 @@
-import math
-import os
-from typing import Any
-
-import numpy as np
-import torch
-from torch.utils.data.dataset import Dataset
 from torchtext import data
 
 make_example = data.Example.fromdict
@@ -78,8 +71,8 @@ class RatebeerBow2Seq(data.Dataset):
         db = MongoClient('mongodb://' + server)['hawkes_text']
         col_bow = db[collection_name_bow]
         col = db[collection]
-        cursor_text = col.find({}).limit(32)
-        cursor_bow = col_bow.find({}).limit(32)
+        cursor_text = col.find({}).limit(100)
+        cursor_bow = col_bow.find({}).limit(100)
 
         examples = []
         for bow, text in zip(cursor_bow, cursor_text):
@@ -326,41 +319,3 @@ class WikiText103(data.Dataset):
                                min_freq=min_freq)
 
         return data.BucketIterator.splits((train, val, test), batch_size=batch_size, device=device)
-
-
-class BasicEventDataset(Dataset):
-    def __init__(self, data_path: str, train=True, bptt_size=50) -> Dataset:
-        self.data_path = data_path
-        suffix = "train" if train else "test"
-
-        self.arrivals = self.__prepare_arrivals(data_path, suffix)
-        self.events = self.__prepare_event_types(data_path, suffix)
-
-        if train:
-            self.__split_into_bptt_windows(bptt_size)
-
-    def __split_into_bptt_windows(self, bptt_size):
-        size = self.arrivals.shape
-        N, seq_len = size[0], size[1]
-        num_bptt = math.floor(seq_len / bptt_size)
-        self.arrivals = self.arrivals[:, :num_bptt * bptt_size].view(N, num_bptt, bptt_size, -1)
-        self.events = self.events[:, :num_bptt * bptt_size].view(N, num_bptt, bptt_size, -1)
-
-    def __prepare_event_types(self, data_path, suffix):
-        events = np.loadtxt(os.path.join(data_path, "event-" + suffix + ".txt"), dtype=np.int64)
-        events = np.stack((events[:, :-1], events[:, 1:]), axis=-1)
-        events = torch.tensor(events[:, 1:])
-        return events
-
-    def __prepare_arrivals(self, data_path: str, suffix: str) -> torch.Tensor:
-        time = np.loadtxt(os.path.join(data_path, "time-" + suffix + ".txt"))
-        dt = time[:, 1:] - time[:, :-1]
-        dy = time[:, 2:] - time[:, 1:-1]
-        time = torch.tensor(np.stack((time[:, 1:-1], dt[:, :-1], dy), axis=-1), dtype=torch.float32)
-        return time
-
-    def __len__(self) -> int:
-        return self.arrivals.size()[0]
-
-    def __getitem__(self, ix: int) -> Any:
-        return self.arrivals[ix], self.events[ix]
