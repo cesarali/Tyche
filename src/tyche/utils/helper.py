@@ -4,13 +4,14 @@ from __future__ import division, absolute_import
 from __future__ import print_function, unicode_literals
 
 import copy
+import functools
 import itertools
-import json
 from importlib import import_module
 
 import numpy as np
 import torch as to
 import torch as torch
+import yaml
 from scipy import linalg as la
 
 
@@ -90,11 +91,11 @@ def load_params(path):
     """
     try:
         with open(path, "rb") as f:
-            params = json.load(f)
+            params = yaml.full_load(f)
         return params
     except:
         with open(path, "r") as f:
-            params = json.load(f, encoding='utf-8')
+            params = yaml.full_load(f, encoding='utf-8')
         return params
 
 
@@ -114,6 +115,56 @@ def to_one_hot(labels, num_classes):
     return one_hot
 
 
+def convert_tuples_2_list(arg):
+    for key, value in arg.items():
+        if isinstance(value, dict):
+            convert_tuples_2_list(value)
+        else:
+            if isinstance(value, tuple):
+                arg[key] = list(value)
+
+    return arg
+
+
+def unpack_cv_parameters(params, prefix=None):
+    cv_params = []
+    for key, value in params.items():
+        if isinstance(value, dict):
+            if prefix is None:
+                prefix = key
+            else:
+                prefix = ".".join([prefix, key])
+            param_pool = unpack_cv_parameters(value, prefix)
+            if len(param_pool) > 0:
+                cv_params.extend(param_pool)
+        elif isinstance(value, list):
+            if prefix is None:
+                prefix = key
+            else:
+                key = ".".join([prefix, key])
+            cv_params.append([(key, v) for v in value])
+    return cv_params
+
+
+def dict_set_nested(d, keys, value):
+    node = d
+    key_count = len(keys)
+    key_idx = 0
+
+    for key in keys:
+        key_idx += 1
+
+        if key_idx == key_count:
+            node[key] = value
+            return d
+        else:
+            if not key in node:
+                node[key] = dict()
+                node = node[key]
+            else:
+                node = node[key]
+
+
 def expand_params(params):
     """
     Expand the hyperparamers for grid search
@@ -122,18 +173,17 @@ def expand_params(params):
     :return:
     """
     cv_params = []
-    if 'grid_search' in params:
-        param_pool = [[(key, v) for v in value] for key,
-                                                    value in params['grid_search'].items() if isinstance(value, list)]
+    param_pool = unpack_cv_parameters(params)
 
-        for i in list(itertools.product(*param_pool)):
-            d = copy.deepcopy(params)
-            name = d['name']
-            for j in i:
-                d[j[0]] = j[1]
-                name += "_" + j[0] + "_" + str(j[1])
-                d['name'] = name.replace('.args.', "_")
-            cv_params.append(d)
+    for i in list(itertools.product(*param_pool)):
+        d = copy.deepcopy(params)
+        name = d['name']
+        for j in i:
+            dict_set_nested(d, j[0].split("."), j[1])
+            name += "_" + j[0] + "_" + str(j[1])
+            d['name'] = name.replace('.args.', "_")
+        d = convert_tuples_2_list(d)
+        cv_params.append(d)
     if not cv_params:
         return [params] * params['num_runs']
 
@@ -212,5 +262,3 @@ def gumbel_softmax(pi, tau):
     y_hard.scatter_(1, ind.view(-1, 1), 1)
     y_hard = y_hard.view(*shape)
     return (y_hard - y).detach() + y
-
-
