@@ -4,7 +4,6 @@ from __future__ import division, absolute_import
 from __future__ import print_function, unicode_literals
 
 import copy
-import functools
 import itertools
 from importlib import import_module
 
