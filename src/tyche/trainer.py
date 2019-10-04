@@ -75,7 +75,6 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
                 desc="Training batch: ", total=self.n_train_batches, unit="batch")
 
         epoch_stat = self._new_stat()
-        self.model.initialize_hidden_state(self.batch_size, self.device)
         for batch_idx, input in enumerate(self.data_loader.train):
             batch_stat = self._train_step(input, batch_idx, epoch, p_bar)
             for k, v in batch_stat.items():
@@ -193,24 +192,24 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
 
         return logger
 
-    def _log_train_step(self, epoch: int, batch_idx: int, logs: Dict) -> None:
+    def _log_train_step(self, epoch: int, batch_idx: int, logs: Dict, batch_size: int) -> None:
         data_len = len(self.data_loader.train.dataset)
-        l = self.__build_raw_log_str("Train epoch", batch_idx, epoch, logs, data_len)
+        l = self.__build_raw_log_str("Train epoch", batch_idx, epoch, logs, data_len, batch_size)
         self.t_logger.info(l)
         for k, v in logs.items():
             self.summary.add_scalar('train/batch/' + k, v, self.global_step)
 
-    def _log_validation_step(self, epoch: int, batch_idx: int, logs: Dict) -> None:
+    def _log_validation_step(self, epoch: int, batch_idx: int, logs: Dict, batch_size: int) -> None:
         data_len = len(self.data_loader.validate.dataset)
-        l = self.__build_raw_log_str("Validation epoch", batch_idx, epoch, logs, data_len)
+        l = self.__build_raw_log_str("Validation epoch", batch_idx, epoch, logs, data_len, batch_size)
         self.t_logger.info(l)
         # for k, v in logs.items():
         #     self.summary.add_scalar('validate/batch/' + k, v, self.global_step)
 
-    def __build_raw_log_str(self, prefix: str, batch_idx: int, epoch: int, logs: Dict, data_len: int):
+    def __build_raw_log_str(self, prefix: str, batch_idx: int, epoch: int, logs: Dict, data_len: int, batch_size: int):
         l = prefix + ": {} [{}/{} ({:.0%})]".format(
                 epoch,
-                batch_idx * self.batch_size,
+                batch_idx * batch_size,
                 data_len,
                 100.0 * batch_idx / data_len)
         for k, v in logs.items():
@@ -250,37 +249,48 @@ class TrainingVAE(BaseTrainingProcedure):
         super(TrainingVAE, self).__init__(model, loss, metrics, optimizer, resume, params, train_logger, data_loader)
 
         self.train_vocab = data_loader.vocab
-
+        # Embedding
         emb_matrix = self.train_vocab.vectors.to(self.device)
         self.model.encoder.embedding.weight.data.copy_(emb_matrix)
+        # Ignore padding
         self.loss.ignore_index = data_loader.train_vocab.stoi['<pad>']
         for m in self.metrics:
             m.ignore_index = data_loader.train_vocab.stoi['<pad>']
-
+        # scale factor for KL term
         self.loss.b_scheduler = create_instance('beta_scheduler', params['trainer']['args'])
 
     def _train_step(self, input, batch_idx: int, epoch: int, p_bar) -> Dict:
         batch_stat = self._new_stat()
         self.optimizer.zero_grad()
+
         x = input.text
         x = (x[0].to(self.device), x[1])
-        B = x[0].size(0)
         target = x[0][:, 1:].contiguous().view(-1)
+
+        # Initialize hidden state for rnn models
+        B = x[0].size(0)
+        self.model.initialize_hidden_state(B, self.device)
+
+        # Train loss
         logits, m, sig = self.model(x)
-
         vae_loss = self.loss(logits, target, m, sig, self.global_step)
-
         vae_loss[0].backward()
         self.optimizer.step()
+
+        # Detach history from rnn models
         self.model.detach_history()
+
+        # Metrics
         metrics = [m(logits, target).item() for m in self.metrics]
         vae_loss = [l.item() for l in vae_loss]
         prediction = logits.argmax(dim=1)
 
         prediction = prediction.view(B, -1)
         target = target.view(B, -1)
+
         self.__update_stats(vae_loss, metrics, batch_stat, B)
-        self._log_train_step(epoch, batch_idx, batch_stat)
+        self._log_train_step(epoch, batch_idx, batch_stat, B)
+
         if self.global_step % 20 == 0:
             self.__log_reconstruction('train/batch/', prediction, target)
 
@@ -320,13 +330,20 @@ class TrainingVAE(BaseTrainingProcedure):
                     unit="batch")
             for batch_idx, batch in enumerate(self.data_loader.validate):
                 self.model.detach_history()
+
                 x = batch.text
-                B = x[0].size(0)
                 x = (x[0].to(self.device), x[1])
-                # target = x[0][1:].view(-1)
                 target = x[0][:, 1:].contiguous().view(-1)
+
+                # Initialize hidden state for rnn models
+                B = x[0].size(0)
+                self.model.initialize_hidden_state(B, self.device)
+
+                # Evaluate model
                 logits, m, sig = self.model(x)
                 vae_loss = self.loss(logits, target, m, sig, self.global_step)
+
+                # Metrics
                 metrics = [m(logits, target).item() for m in self.metrics]
                 vae_loss = [l.item() for l in vae_loss]
 
@@ -336,7 +353,7 @@ class TrainingVAE(BaseTrainingProcedure):
                 if self.global_step % 20 == 0:
                     self.__log_reconstruction('validate/batch/', prediction, target)
                 self.__update_stats(vae_loss, metrics, statistics, B)
-                self._log_validation_step(epoch, batch_idx, statistics)
+                self._log_validation_step(epoch, batch_idx, statistics, B)
                 p_bar.set_postfix_str(
                         "loss: {:5.4f}, nll: {:5.4f}, kl: {:5.4f}".format(statistics['loss'], statistics['nll'],
                                                                           statistics['kl']))
@@ -415,6 +432,10 @@ class TrainingWAE(BaseTrainingProcedure):
         x = (x[0].to(self.device), x[1])
         target = x[0][:, 1:].contiguous().view(-1)
 
+        # Initialize hidden state for rnn models
+        B = x[0].size(0)
+        self.model.initialize_hidden_state(B, self.device)
+
         # Critic optimization
 
         self._critic_optimizer.zero_grad()
@@ -457,10 +478,10 @@ class TrainingWAE(BaseTrainingProcedure):
         metrics = [m(logits, target).item() for m in self.metrics]
         wae_loss = [l.item() for l in wae_loss]
         prediction = logits.argmax(dim=1)
-        prediction = prediction.view(self.batch_size, -1)
-        target = target.view(self.batch_size, -1)
+        prediction = prediction.view(B, -1)
+        target = target.view(B, -1)
         self.__update_stats(wae_loss, metrics, batch_stat)
-        self._log_train_step(epoch, batch_idx, batch_stat)
+        self._log_train_step(epoch, batch_idx, batch_stat, B)
         if self.global_step % 20 == 0:
             self.__log_reconstruction('train/batch/', prediction, target)
 
@@ -503,23 +524,27 @@ class TrainingWAE(BaseTrainingProcedure):
                 x = (x[0].to(self.device), x[1])
                 target = x[0][1:].view(-1)
 
-                logits, z_prior, z_post = self.model(x)
+                # Initialize hidden state for rnn models
+                B = x[0].size(0)
+                self.model.initialize_hidden_state(B, self.device)
 
+                # Evaluate model
+                logits, z_prior, z_post = self.model(x)
                 distance = self.wasserstein_distance(z_prior, z_post)
                 wae_loss = self.loss(logits, target, distance, self.global_step)
 
+                # Metrics:
                 metrics = [m(logits, target).item() for m in self.metrics]
                 wae_loss = [l.item() for l in wae_loss]
-
                 prediction = logits.argmax(dim=1)
-                prediction = prediction.view(self.batch_size, -1)
+                prediction = prediction.view(B, -1)
 
-                target = target.view(self.batch_size, -1)
+                target = target.view(B, -1)
 
                 if self.global_step % 20 == 0:
                     self.__log_reconstruction('validate/batch/', prediction, target)
-                self.__update_stats(wae_loss, metrics, statistics)
-                self._log_validation_step(epoch, batch_idx, statistics)
+                self.__update_stats(wae_loss, metrics, statistics, B)
+                self._log_validation_step(epoch, batch_idx, statistics, B)
                 p_bar.set_postfix_str(
                         "loss: {:5.4f}, nll: {:5.4f}, kl: {:5.4f}".format(statistics['loss'], statistics['nll'],
                                                                           statistics['w-distance']))
@@ -530,18 +555,18 @@ class TrainingWAE(BaseTrainingProcedure):
 
         return statistics
 
-    def __update_stats(self, wae_loss: Tuple, metrics: List[_Loss], statistics):
+    def __update_stats(self, wae_loss: Tuple, metrics: List[_Loss], statistics, batch_size):
         batch_loss = wae_loss[1] + wae_loss[2]
-        statistics['nll'] += wae_loss[1] / float(self.batch_size)
-        statistics['w-distance'] += wae_loss[2] / float(self.batch_size)
-        statistics['loss'] += batch_loss / float(self.batch_size)
+        statistics['nll'] += wae_loss[1] / float(batch_size)
+        statistics['w-distance'] += wae_loss[2] / float(batch_size)
+        statistics['loss'] += batch_loss / float(batch_size)
         statistics['beta'] = wae_loss[3]
         for m, value in zip(self.metrics, metrics):
             n = type(m).__name__
             if n == 'Perplexity':
                 statistics[n] += value
             else:
-                statistics[n] += value / float(self.batch_size)
+                statistics[n] += value / float(batch_size)
 
     def _new_stat(self):
         statistics = dict()
