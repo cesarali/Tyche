@@ -1,4 +1,5 @@
 import datetime
+import json
 import logging
 import os
 from abc import ABCMeta, abstractmethod
@@ -7,7 +8,6 @@ from typing import Dict, Tuple, List
 import numpy as np
 import torch
 import tqdm
-import json
 from tensorboardX import SummaryWriter
 from torch.nn.modules.loss import _Loss
 
@@ -472,106 +472,6 @@ class TrainingRnnHawkes(BaseTrainingProcedure):
 
 
 BaseTrainingProcedure.register(TrainingRnnHawkes)
-
-
-class TrainingRnnTextHawkes(BaseTrainingProcedure):
-    def __init__(self,
-                 model,
-                 loss,
-                 metric,
-                 optimizer,
-                 resume,
-                 params,
-                 data_loader,
-                 train_logger=None, **kwargs):
-        super(TrainingRnnTextHawkes, self).__init__(model, loss, metric, optimizer, resume,
-                                                    params, train_logger, data_loader)
-        self.bptt_len = data_loader.bptt_len
-
-    def _train_step(self, input, batch_idx, epoch, p_bar):
-        batch_stat = self._new_stat()
-        num_seq = 0
-
-        for seq_ix, data in enumerate(input):
-            x_time, l = data.time
-            x_text = data.text
-            self.optimizer.zero_grad()
-            loss, y, mark_prediction = self.model.loss(data)
-            loss.backward()
-            self.optimizer.step()
-
-            loss = loss.item()
-            acc = self.__accuracy(mark_prediction, mark[:, seq_ix, :, -1]).item()
-            metrics = [m(y, x_time[:, seq_ix, :, -1]).item() for m in self.metrics]
-            self.__update_stats(loss, metrics, acc, batch_stat)
-
-            self.model.rnn.detach()
-        self.N = np.prod(x_time.size()[:-1])
-        batch_stat['loss'] /= float(self.N)
-        batch_stat['acc'] /= float(self.N)
-        batch_stat['RMSELoss'] /= float(num_seq)
-        self._log_train_step(epoch, batch_idx, batch_stat)
-        p_bar.set_postfix_str(
-                "loss: {:5.4f}, rmse: {:5.4f}, acc: {:3.2%}".format(batch_stat['loss'], metrics[0], batch_stat['acc']))
-        self.global_step += 1
-        p_bar.update()
-        return batch_stat
-
-    def __accuracy(self, input, target):
-        input = torch.argmax(input.view(-1, self.model.K))
-        target = target.contiguous().view(-1)
-        correct = (input == target).sum()
-        return correct
-
-    def _validate_epoch(self, epoch):
-        self.model.eval()
-        statistics = self._new_stat()
-        with torch.no_grad():
-            p_bar = tqdm.tqdm(
-                    desc="Validation batch: ",
-                    total=self.n_val_batches,
-                    unit="batch")
-            # self.model.rnn.init_hidden(self.batch_size)
-
-            for batch_idx, (x, mark) in enumerate(self.data_loader.validate):
-                self.N = np.prod(x.size()[:-1])
-                loss, y, mark_pred = self.model.loss(x, mark)
-                loss = loss.item()
-                acc = self.__accuracy(mark_pred, mark[:, :, -1]).item()
-
-                metrics = [m(y, x[:, :, -1]).item() for m in self.metrics]
-
-                p_bar.set_postfix_str(
-                        "loss: {:5.4f} rmse: {:5.4f} acc: {:3.2%}".format(loss, metrics[0], acc))
-                p_bar.update()
-                statistics['loss'] /= float(self.N)
-                statistics['acc'] /= float(self.N)
-                self.__update_stats(loss, metrics, acc, statistics)
-
-            p_bar.close()
-
-        self._normalize_stats(self.n_val_batches, statistics)
-        self._log_epoch("validate/epoch/", statistics)
-        return statistics
-
-    def __update_stats(self, loss: Tuple, metrics: List[_Loss], accuracy, statistics):
-        statistics['loss'] += loss
-        statistics['acc'] += accuracy
-        for m, value in zip(self.metrics, metrics):
-            n = type(m).__name__
-            statistics[n] += value
-
-    def _new_stat(self):
-        statistics = dict()
-        statistics['loss'] = 0.0
-        statistics['acc'] = 0.0
-
-        for m in self.metrics:
-            statistics[type(m).__name__] = 0.0
-        return statistics
-
-
-BaseTrainingProcedure.register(TrainingRnnTextHawkes)
 
 
 class TrainingWAE(BaseTrainingProcedure):

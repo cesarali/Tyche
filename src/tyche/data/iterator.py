@@ -140,16 +140,23 @@ class BPTTIterator(Iterator):
                 self._iterations_this_epoch += 1
                 # should we have many batches or we should have one long batch with many windows
                 batch_size: int = len(batch)
-                seq_len, text, time, bow = self.__series_2_bptt(batch, batch_size)
                 dataset = Dataset(examples=self.dataset.examples, fields=[
                     ('time', self.dataset.fields['time']), ('bow', self.dataset.fields['bow']),
                     ('target_time', Field(use_vocab=False)), ('target_text', Field(use_vocab=False))])
-                yield (Batch.fromvars(
-                        dataset, batch_size,
-                        time=(t[:, :, :2], l),
-                        bow=b,
-                        target_time=t[:, :, -1],
-                        target_text=(te, sl)) for t, b, te, sl, l in zip(time, bow, text[0], text[1], seq_len))
+                if self.train:
+                    seq_len, text, time, bow = self.__series_2_bptt(batch, batch_size)
+                    yield (Batch.fromvars(
+                            dataset, batch_size,
+                            time=(t[:, :, :2], l),
+                            bow=b,
+                            target_time=t[:, :, -1],
+                            target_text=(te, sl)) for t, b, te, sl, l in zip(time, bow, text[0], text[1], seq_len))
+                else:
+
+                    batch.target_text = batch.text
+                    batch.time = (batch.time[0][:, :, :2], batch.time[1])
+                    batch.target_time = batch.time[0][:, :, -1]
+                    yield batch
 
             if not self.repeat:
                 return

@@ -3,9 +3,9 @@ from torchtext.data import Field, NestedField, Dataset
 
 
 class BPTTField(Field):
-    def __init__(self, bptt_len=20, **kwargs):
+    def __init__(self, bptt_length=20, **kwargs):
         super(BPTTField, self).__init__(sequential=True, batch_first=True, **kwargs)
-        self.bptt_len = bptt_len
+        self._bptt_length = bptt_length
 
     def pad(self, minibatch):
         """Pad a batch of examples using this field.
@@ -27,9 +27,9 @@ class BPTTField(Field):
             max_len = self.fix_length + (
                 self.init_token, self.eos_token).count(None) - 2
 
-        reminder = max_len % self.bptt_len
+        reminder = max_len % self._bptt_length
         if reminder != 0:
-            max_len += (self.bptt_len - reminder)
+            max_len += (self._bptt_length - reminder)
         padded, lengths = [], []
         for x in minibatch:
             if self.pad_first:
@@ -48,6 +48,12 @@ class BPTTField(Field):
         if self.include_lengths:
             return (padded, lengths)
         return padded
+
+    def numericalize(self, arr, device=None):
+        r = super(BPTTField, self).numericalize(arr, device)
+        if self.include_lengths:
+            return r[0], r[1].long()
+        return r
 
 
 class NestedBPTTField(BPTTField):
@@ -123,12 +129,12 @@ class NestedBPTTField(BPTTField):
                 unk_token=nesting_field.unk_token,
                 pad_first=pad_first,
                 truncate_first=truncate_first,
-                include_lengths=include_lengths
+                include_lengths=include_lengths,
+                bptt_length=bptt_length
         )
         self.nesting_field = nesting_field
         # in case the user forget to do that
         self.nesting_field.batch_first = True
-        self.bptt_length = bptt_length
 
     def preprocess(self, xs):
         """Preprocess a single example.
@@ -323,8 +329,8 @@ class NestedBPTTField(BPTTField):
         self.nesting_field.include_lengths = True
         if self.include_lengths:
             sentence_lengths = \
-                torch.tensor(sentence_lengths, dtype=self.dtype, device=device)
-            word_lengths = torch.tensor(word_lengths, dtype=self.dtype, device=device)
+                torch.tensor(sentence_lengths, dtype=torch.int64, device=device)
+            word_lengths = torch.tensor(word_lengths, dtype=torch.int64, device=device)
             return (padded_batch, sentence_lengths, word_lengths)
         return padded_batch
 

@@ -242,8 +242,14 @@ class RMSELoss(_Loss):
     """
     __constants__ = ['reduction']
 
-    def __init__(self, size_average=None, reduce=None, reduction='mean'):
+    def __init__(self, size_average=None, reduce=None, reduction='mean', ignore_index=None):
         super(RMSELoss, self).__init__(size_average, reduce, reduction)
+        self.ignore_index = ignore_index
 
     def forward(self, input, target):
-        return torch.sqrt(F.mse_loss(input, target, reduction=self.reduction))
+        if self.ignore_index is not None:
+            ix = target != self.ignore_index
+            mse = F.mse_loss(input[ix], target[ix], reduction=self.reduction)
+        else:
+            mse = F.mse_loss(input, target, reduction=self.reduction)
+        return torch.sqrt(mse)
