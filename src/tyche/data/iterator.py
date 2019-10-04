@@ -3,6 +3,7 @@ import torch
 from torchtext.data import Dataset, Field
 from torchtext.data.batch import Batch
 from torchtext.data.iterator import Iterator
+from torchtext.data.iterator import BucketIterator
 
 
 class BPTTPointIterator(Iterator):
@@ -60,8 +61,8 @@ class BPTTPointIterator(Iterator):
                     ('time', self.dataset.fields['time'])])
 
                 yield (Batch.fromvars(
-                        dataset, batch_size,
-                        time=(ti, l)) for ti, l in zip(time, seq_len))
+                    dataset, batch_size,
+                    time=(ti, l)) for ti, l in zip(time, seq_len))
 
                 if not self.repeat:
                     return
@@ -146,11 +147,11 @@ class BPTTIterator(Iterator):
                 if self.train:
                     seq_len, text, time, bow = self.__series_2_bptt(batch, batch_size)
                     yield (Batch.fromvars(
-                            dataset, batch_size,
-                            time=(t[:, :, :2], l),
-                            bow=b,
-                            target_time=t[:, :, -1],
-                            target_text=(te, sl)) for t, b, te, sl, l in zip(time, bow, text[0], text[1], seq_len))
+                        dataset, batch_size,
+                        time=(t[:, :, :2], l),
+                        bow=b,
+                        target_time=t[:, :, -1],
+                        target_text=(te, sl)) for t, b, te, sl, l in zip(time, bow, text[0], text[1], seq_len))
                 else:
 
                     batch.target_text = batch.text

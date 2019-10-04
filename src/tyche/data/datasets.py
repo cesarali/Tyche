@@ -1,7 +1,7 @@
+from pymongo import MongoClient
 from torchtext import data
 
 make_example = data.Example.fromdict
-from pymongo import MongoClient
 
 
 def fix_nulls(s):
@@ -66,7 +66,8 @@ class RatebeerBow(data.Dataset):
 class RatebeerBow2Seq(data.Dataset):
     def __init__(self, server: str, collection: str, time_field, text_field, bow_field, **kwargs):
         bow_size = kwargs.pop('bow_size')
-        fields = {'time': ('time', time_field), 'text': ('text', text_field), 'bow': ('bow', bow_field)}
+        fields = {'time': ('time', time_field), 'text': (
+            'text', text_field), 'bow': ('bow', bow_field)}
         collection_name_bow = f"{collection}_{bow_size}"
         db = MongoClient('mongodb://' + server)['hawkes_text']
         col_bow = db[collection_name_bow]
@@ -142,10 +143,8 @@ class PennTreebank(data.Dataset):
     def __init__(self, path, text_field, **kwargs):
         fields = [('text', text_field)]
         pos = data.TabularDataset(path, format='csv', fields=fields)
-
         super(PennTreebank, self).__init__(
-                pos.examples, fields, **kwargs)
-        self.max_len = max([len(f.text) for f in self.examples])
+            pos.examples, fields, **kwargs)
 
     @classmethod
     def splits(cls, text_field, root='.data', train='ptb.train.txt',
@@ -162,8 +161,8 @@ class PennTreebank(data.Dataset):
                 set. Default: 'ptb.test.txt'.
         """
         return super(PennTreebank, cls).splits(
-                root=root, train=train, validation=validation, test=test,
-                text_field=text_field, **kwargs)
+            root=root, train=train, validation=validation, test=test,
+            text_field=text_field, **kwargs)
 
     @classmethod
     def iters(cls, text_field, batch_size=32, device='cpu', root='.data',
@@ -190,6 +189,10 @@ class PennTreebank(data.Dataset):
 
         return data.BucketIterator.splits((train, val, test), batch_size=batch_size, device=device)
 
+    @property
+    def max_len(self):
+        return max([len(f.text) for f in self.examples])
+
 
 class WikiText2(data.Dataset):
     urls = ['https://s3.amazonaws.com/research.metamind.io/wikitext/wikitext-2-v1.zip']
@@ -201,8 +204,7 @@ class WikiText2(data.Dataset):
         pos = data.TabularDataset(path, format='csv', fields=fields)
 
         super(WikiText2, self).__init__(
-                pos.examples, fields, **kwargs)
-        self.max_len = max([len(f.text) for f in self.examples])
+            pos.examples, fields, **kwargs)
 
     @classmethod
     def splits(cls, text_field, root='.data', train='wiki.train.tokens',
@@ -224,8 +226,8 @@ class WikiText2(data.Dataset):
                       set. Default: 'wiki.test.tokens'.
               """
         return super(WikiText2, cls).splits(
-                root=root, train=train, validation=validation, test=test,
-                text_field=text_field, **kwargs)
+            root=root, train=train, validation=validation, test=test,
+            text_field=text_field, **kwargs)
 
     @classmethod
     def iters(cls, text_field, batch_size=32, device='cpu', root='.data',
@@ -255,6 +257,10 @@ class WikiText2(data.Dataset):
 
         return data.BucketIterator.splits((train, val, test), batch_size=batch_size, device=device)
 
+    @property
+    def max_len(self):
+        return max([len(f.text) for f in self.examples])
+
 
 class WikiText103(data.Dataset):
     urls = ['https://s3.amazonaws.com/research.metamind.io/wikitext/wikitext-103-v1.zip']
@@ -266,8 +272,7 @@ class WikiText103(data.Dataset):
         pos = data.TabularDataset(path, format='csv', fields=fields)
 
         super(WikiText103, self).__init__(
-                pos.examples, fields, **kwargs)
-        self.max_len = max([len(f.text) for f in self.examples])
+            pos.examples, fields, **kwargs)
 
     @classmethod
     def splits(cls, text_field, root='.data', train='wiki.train.tokens',
@@ -289,8 +294,8 @@ class WikiText103(data.Dataset):
                       set. Default: 'wiki.test.tokens'.
               """
         return super(WikiText103, cls).splits(
-                root=root, train=train, validation=validation, test=test,
-                text_field=text_field, **kwargs)
+            root=root, train=train, validation=validation, test=test,
+            text_field=text_field, **kwargs)
 
     @classmethod
     def iters(cls, text_field, batch_size=32, device='cpu', root='.data',
@@ -319,3 +324,7 @@ class WikiText103(data.Dataset):
                                min_freq=min_freq)
 
         return data.BucketIterator.splits((train, val, test), batch_size=batch_size, device=device)
+
+    @property
+    def max_len(self):
+        return max([len(f.text) for f in self.examples])

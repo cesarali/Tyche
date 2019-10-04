@@ -118,8 +118,8 @@ class DataLoaderRatebeer(ADataLoader):
             FIELD_BOW.fix_length = max_len
             NESTED_TEXT_FIELD.fix_length = max_len
         self._train_iter, self._valid_iter, self._test_iter = data.BPTTIterator.splits(
-                (train, valid, test), batch_sizes=(batch_size, batch_size, len(test)), sort_key=lambda x: len(x.time),
-                sort_within_batch=True, repeat=False, bptt_len=bptt_length)
+            (train, valid, test), batch_sizes=(batch_size, batch_size, len(test)), sort_key=lambda x: len(x.time),
+            sort_within_batch=True, repeat=False, bptt_len=bptt_length)
         self._bptt_length = bptt_length
         NESTED_TEXT_FIELD.build_vocab(train, vectors=emb_dim, vectors_cache=path_to_vectors, max_size=voc_size,
                                       min_freq=min_freq)
@@ -165,7 +165,8 @@ class DataLoaderRatebeerBow(ADataLoader):
                                     preprocessing=delta)
         FIELD_TEXT = data.BPTTField(bptt_len=bptt_length, use_vocab=False,
                                     include_lengths=False,
-                                    pad_token=[csr_matrix((1, bow_size)), csr_matrix((1, bow_size))],
+                                    pad_token=[csr_matrix((1, bow_size)),
+                                               csr_matrix((1, bow_size))],
                                     preprocessing=unpack_bow, postprocessing=expand_bow_vector,
                                     dtype=torch.float32)
 
@@ -181,8 +182,8 @@ class DataLoaderRatebeerBow(ADataLoader):
             FIELD_TEXT.fix_length = max_len
 
         self._train_iter, self._valid_iter, self._test_iter = data.BPTTIterator.splits(
-                (train, valid, test), batch_sizes=(batch_size, batch_size, len(test)), sort_key=lambda x: len(x.time),
-                sort_within_batch=True, repeat=False, bptt_len=bptt_length)
+            (train, valid, test), batch_sizes=(batch_size, batch_size, len(test)), sort_key=lambda x: len(x.time),
+            sort_within_batch=True, repeat=False, bptt_len=bptt_length)
         self.bptt_length = bptt_length
         self.bow_s = bow_size
 
@@ -220,6 +221,8 @@ class DataLoaderPTB(ADataLoader):
         voc_size = kwargs.pop('voc_size', None)
         min_freq = kwargs.pop('min_freq', 1)
         fix_len = kwargs.pop('fix_len', None)
+        min_len = kwargs.pop('min_len', None)
+        max_len = kwargs.pop('max_len', None)
 
         # Defining fields
         TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>', lower=True,
@@ -227,18 +230,28 @@ class DataLoaderPTB(ADataLoader):
                                     include_lengths=True, fix_length=fix_len, batch_first=True)
         train, valid, test = datasets.PennTreebank.splits(TEXT, root=path_to_data)
 
+        if min_len is not None:
+            train.examples = [x for x in train.examples if len(x.text) >= min_len]
+            valid.examples = [x for x in valid.examples if len(x.text) >= min_len]
+            test.examples = [x for x in test.examples if len(x.text) >= min_len]
+        if max_len is not None:
+            train.examples = [x for x in train.examples if len(x.text) <= max_len]
+            valid.examples = [x for x in valid.examples if len(x.text) <= max_len]
+            test.examples = [x for x in test.examples if len(x.text) <= max_len]
+
         if fix_len == -1:
             TEXT.fix_length = max([train.max_len, valid.max_len, test.max_len])
 
         self._train_iter, self._valid_iter, self._test_iter = BucketIterator.splits(
-                (train, valid, test),
-                batch_sizes=(batch_size, batch_size, len(test)),
-                sort_key=lambda x: len(x.text),
-                sort_within_batch=True,
-                repeat=False
+            (train, valid, test),
+            batch_sizes=(batch_size, batch_size, len(test)),
+            sort_key=lambda x: len(x.text),
+            sort_within_batch=True,
+            repeat=False
         )
 
-        TEXT.build_vocab(train, vectors=emb_dim, vectors_cache=path_to_vectors, max_size=voc_size, min_freq=min_freq)
+        TEXT.build_vocab(train, vectors=emb_dim, vectors_cache=path_to_vectors,
+                         max_size=voc_size, min_freq=min_freq)
         self.train_vocab = TEXT.vocab
         self.fix_length = TEXT.fix_length
 
@@ -272,6 +285,8 @@ class DataLoaderWiki2(ADataLoader):
         voc_size = kwargs.pop('voc_size', None)
         min_freq = kwargs.pop('min_freq', 1)
         fix_len = kwargs.pop('fix_len', None)
+        min_len = kwargs.pop('min_len', None)
+        max_len = kwargs.pop('max_len', None)
 
         # Defining fields
         TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>',
@@ -279,15 +294,24 @@ class DataLoaderWiki2(ADataLoader):
                                     include_lengths=True, fix_length=fix_len, batch_first=True)
         train, valid, test = datasets.WikiText2.splits(TEXT, root=path_to_data)
 
+        if min_len is not None:
+            train.examples = [x for x in train.examples if len(x.text) >= min_len]
+            valid.examples = [x for x in valid.examples if len(x.text) >= min_len]
+            test.examples = [x for x in test.examples if len(x.text) >= min_len]
+        if max_len is not None:
+            train.examples = [x for x in train.examples if len(x.text) <= max_len]
+            valid.examples = [x for x in valid.examples if len(x.text) <= max_len]
+            test.examples = [x for x in test.examples if len(x.text) <= max_len]
+
         if fix_len == -1:
             TEXT.fix_length = max([train.max_len, valid.max_len, test.max_len])
 
         self._train_iter, self._valid_iter, self._test_iter = data.BucketIterator.splits(
-                (train, valid, test),
-                batch_sizes=(batch_size, batch_size, len(test)),
-                sort_key=lambda x: len(x.text),
-                sort_within_batch=True,
-                repeat=False
+            (train, valid, test),
+            batch_sizes=(batch_size, batch_size, len(test)),
+            sort_key=lambda x: len(x.text),
+            sort_within_batch=True,
+            repeat=False
         )
 
         TEXT.build_vocab(train, vectors=emb_dim, vectors_cache=path_to_vectors, max_size=voc_size,
@@ -325,22 +349,32 @@ class DataLoaderWiki103(ADataLoader):
         voc_size = kwargs.pop('voc_size', None)
         min_freq = kwargs.pop('min_freq', 1)
         fix_len = kwargs.pop('fix_len', None)
+        min_len = kwargs.pop('min_len', None)
+        max_len = kwargs.pop('max_len', None)
 
         # Defining fields
         TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>',
                                     tokenize=tokenizer,
                                     include_lengths=True, fix_length=fix_len, batch_first=True)
         train, valid, test = datasets.WikiText103.splits(TEXT, root=path_to_data)
+        if min_len is not None:
+            train.examples = [x for x in train.examples if len(x.text) >= min_len]
+            valid.examples = [x for x in valid.examples if len(x.text) >= min_len]
+            test.examples = [x for x in test.examples if len(x.text) >= min_len]
+        if max_len is not None:
+            train.examples = [x for x in train.examples if len(x.text) <= max_len]
+            valid.examples = [x for x in valid.examples if len(x.text) <= max_len]
+            test.examples = [x for x in test.examples if len(x.text) <= max_len]
 
         if fix_len == -1:
             TEXT.fix_length = max([train.max_len, valid.max_len, test.max_len])
 
         self._train_iter, self._valid_iter, self._test_iter = data.BucketIterator.splits(
-                (train, valid, test),
-                batch_sizes=(batch_size, batch_size, len(test)),
-                sort_key=lambda x: len(x.text),
-                sort_within_batch=True,
-                repeat=False
+            (train, valid, test),
+            batch_sizes=(batch_size, batch_size, len(test)),
+            sort_key=lambda x: len(x.text),
+            sort_within_batch=True,
+            repeat=False
         )
 
         TEXT.build_vocab(train, vectors=emb_dim, vectors_cache=path_to_vectors, max_size=voc_size,
