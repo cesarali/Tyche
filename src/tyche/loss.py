@@ -162,6 +162,36 @@ class VQ(CrossEntropyLoss):
         return loss, loss_rec, loss_vq, loss_commit
 
 
+class GumbelLoss(CrossEntropyLoss):
+
+    def __init__(self, weight=None, size_average=None, ignore_index=-100,
+                 reduce=None, reduction='mean', beta_scheduler=None):
+        super(GumbelLoss, self).__init__(weight, size_average, ignore_index, reduce, reduction)
+        if beta_scheduler is None:
+            self.b_scheduler = p_scheduler.ConstantScheduler()
+        else:
+            self.b_scheduler = beta_scheduler
+
+    def forward(self, input, target, softmax, mean, sigma, step, epsilon=1e-20):
+
+        # Reconstruction loss
+        loss_rec = super(GumbelAELoss, self).forward(input, target)
+        # KL divergence for gumbel softmax
+        softmax = torch.mean(softmax, dim=0).view(latent_dim)
+        # prior: uniform over all symbols
+        latent_dim = softmax.shape[-1]
+        priors = torch.Tensor([1/latent_dim]*latent_dim).detach()
+        kl = torch.sum(torch.log(softmax/(priors)+epsilon))
+
+        beta = torch.tensor(self.b_scheduler(step))
+        if beta == 0:
+            loss = loss_rec
+        else:
+            loss = loss_rec + beta * kl
+
+        return loss_rec, loss_rec, kl, beta
+
+
 class WAELoss(CrossEntropyLoss):
     """
     Wasserstein Autoencoder Loss
