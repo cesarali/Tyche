@@ -611,8 +611,12 @@ class TrainingVQ(BaseTrainingProcedure):
         self.optimizer.zero_grad()
         x = input.text
         x = (x[0].to(self.device), x[1])
-
         target = x[0][:, 1:].contiguous().view(-1)
+
+        # Initialize hidden state for rnn models
+        B = x[0].size(0)
+        self.model.initialize_hidden_state(B, self.device)
+
         logits, z_e_x, z_q_x, indices = self.model(x)
 
         vae_loss = self.loss(logits, target, z_e_x, z_q_x, self.global_step)
@@ -623,10 +627,10 @@ class TrainingVQ(BaseTrainingProcedure):
         metrics = [m(logits, target).item() for m in self.metrics]
         vae_loss = [l.item() for l in vae_loss]
         prediction = logits.argmax(dim=1)
-        prediction = prediction.view(-1, self.batch_size)
-        target = target.view(-1, self.batch_size)
-        self.__update_stats(vae_loss, metrics, batch_stat)
-        self._log_train_step(epoch, batch_idx, batch_stat)
+        prediction = prediction.view(-1, B)
+        target = target.view(-1, B)
+        self.__update_stats(vae_loss, metrics, batch_stat, B)
+        self._log_train_step(epoch, batch_idx, batch_stat, B)
         if self.global_step % 20 == 0:
             self.__log_reconstruction('train/batch/', prediction, target)
 
@@ -682,8 +686,8 @@ class TrainingVQ(BaseTrainingProcedure):
                 target = target.view(-1, batch_size)
                 if self.global_step % 20 == 0:
                     self.__log_reconstruction('validate/batch/', prediction, target)
-                self.__update_stats(vae_loss, metrics, statistics)
-                self._log_validation_step(epoch, batch_idx, statistics)
+                self.__update_stats(vae_loss, metrics, statistics, batch_size)
+                self._log_validation_step(epoch, batch_idx, statistics, batch_size)
                 p_bar.set_postfix_str(
                         "loss: {:5.4f}, rec: {:5.4f}, vq: {:5.4f}".format(statistics['loss'], statistics['rec'],
                                                                           statistics['commit']))
@@ -694,18 +698,18 @@ class TrainingVQ(BaseTrainingProcedure):
 
         return statistics
 
-    def __update_stats(self, vae_loss: Tuple, metrics: List[_Loss], statistics):
+    def __update_stats(self, vae_loss: Tuple, metrics: List[_Loss], statistics, batch_size):
         batch_loss = vae_loss[0]
-        statistics['rec'] += vae_loss[1] / float(self.batch_size)
-        statistics['vq'] += vae_loss[2] / float(self.batch_size)
-        statistics['loss'] += batch_loss / float(self.batch_size)
+        statistics['rec'] += vae_loss[1] / float(batch_size)
+        statistics['vq'] += vae_loss[2] / float(batch_size)
+        statistics['loss'] += batch_loss / float(batch_size)
         statistics['commit'] = vae_loss[3]
         for m, value in zip(self.metrics, metrics):
             n = type(m).__name__
             if n == 'Perplexity':
                 statistics[n] += value
             else:
-                statistics[n] += value / float(self.batch_size)
+                statistics[n] += value / float(batch_size)
 
     def _new_stat(self):
         statistics = dict()
