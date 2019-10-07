@@ -10,12 +10,12 @@ def fix_nulls(s):
 
 
 class RatebeerBow(data.Dataset):
-    def __init__(self, server: str, collection: str, time_field, text_field, **kwargs):
+    def __init__(self, server: str, collection: str, time_field, bow_field, **kwargs):
 
-        fields = {'time': ('time', time_field), 'bow': ('bow', text_field)}
+        fields = {'time': ('time', time_field), 'bow': ('bow', bow_field)}
 
         col = MongoClient('mongodb://' + server)['hawkes_text'][collection]
-        c = col.find({}).limit(100)
+        c = col.find({}).limit(32)
         examples = [make_example(i, fields) for i in c]
 
         if isinstance(fields, dict):
