@@ -24,7 +24,8 @@ def tokenizer(x):
 
 
 def unpack_bow(x):
-    return list(map(lambda i, y: [pickle.loads(i), pickle.loads(y)], x[1:], x[2:]))
+    x_unpacked = list(map(lambda i: pickle.loads(i), x[1:]))
+    return [[i, j] for i, j in zip(x_unpacked[:-1], x_unpacked[1:])]
 
 
 def unpack_bow2seq(x):
@@ -41,8 +42,8 @@ def delta(x: list) -> List[list]:
     return [[x1, x2, y] for (x1, x2, y) in zip(x[1:-1], dt, dy)]
 
 
-def expand_bow_vector(input, y):
-    return [list(map(lambda x: x.toarray()[0], d)) for d in input]
+def expand_bow_vector(input, _):
+    return [list(map(lambda x: [x[0].toarray()[0], x[1].toarray()[0]], d)) for d in input]
 
 
 class ADataLoader(ABC):
@@ -118,8 +119,8 @@ class DataLoaderRatebeer(ADataLoader):
             FIELD_BOW.fix_length = max_len
             NESTED_TEXT_FIELD.fix_length = max_len
         self._train_iter, self._valid_iter, self._test_iter = data.BPTTIterator.splits(
-            (train, valid, test), batch_sizes=(batch_size, batch_size, len(test)), sort_key=lambda x: len(x.time),
-            sort_within_batch=True, repeat=False, bptt_len=bptt_length)
+                (train, valid, test), batch_sizes=(batch_size, batch_size, len(test)), sort_key=lambda x: len(x.time),
+                sort_within_batch=True, repeat=False, bptt_len=bptt_length)
         self._bptt_length = bptt_length
         NESTED_TEXT_FIELD.build_vocab(train, vectors=emb_dim, vectors_cache=path_to_vectors, max_size=voc_size,
                                       min_freq=min_freq)
@@ -157,33 +158,44 @@ class DataLoaderRatebeerBow(ADataLoader):
         batch_size = kwargs.pop('batch_size', 32)
         fix_len = kwargs.pop('fix_len', None)
         bptt_length = kwargs.pop('bptt_len', 20)
-        bow_size = kwargs.get('bow_size', 2000)
+        bow_size = kwargs.pop('bow_size', 2000)
         server = kwargs.pop('server', 'localhost')
+        data_collection_name = kwargs.pop('data_collection')
 
-        FIELD_TIME = data.BPTTField(bptt_len=bptt_length, use_vocab=False,
-                                    include_lengths=True, pad_token=[0, 0, 0],
-                                    preprocessing=delta)
-        FIELD_TEXT = data.BPTTField(bptt_len=bptt_length, use_vocab=False,
-                                    include_lengths=False,
-                                    pad_token=[csr_matrix((1, bow_size)),
-                                               csr_matrix((1, bow_size))],
-                                    preprocessing=unpack_bow, postprocessing=expand_bow_vector,
-                                    dtype=torch.float32)
+        train_col = f'{data_collection_name}_train_' + str(bow_size)
+        val_col = f'{data_collection_name}_validation_' + str(bow_size)
+        test_col = f'{data_collection_name}_test_' + str(bow_size)
 
-        train_col = 'ratebeer_by_user_train_' + str(bow_size)
-        val_col = 'ratebeer_by_user_validation_' + str(bow_size)
-        test_col = 'ratebeer_by_user_test_' + str(bow_size)
-        train, valid, test = datasets.RatebeerBow.splits(server, time_field=FIELD_TIME, text_field=FIELD_TEXT,
+        db = MongoClient('mongodb://' + server)['hawkes_text']
+        col = db[train_col]
+
+        min_max_values = list(col.aggregate([{"$project": {"_id": 0, "time": 1}}, {"$unwind": "$time"},
+                                             {"$group": {"_id": None, "max": {"$max": "$time"},
+                                                         "min": {"$min": "$time"}}},
+                                             {"$limit": 1}]))[0]
+        self.min_time = min_max_values['min']
+        self.max_time = min_max_values['max']
+        part_scale = partial(min_max_scale, min_value=self.min_time, max_value=self.max_time)
+        FIELD_TIME = data.BPTTField(bptt_length=bptt_length, use_vocab=False, fix_length=fix_len,
+                                    include_lengths=True, pad_token=[-1.0, -1.0, -1.0],
+                                    preprocessing=lambda x: delta(part_scale(x)), dtype=torch.float32)
+        FIELD_BOW = data.BPTTField(bptt_length=bptt_length, use_vocab=False, fix_length=fix_len,
+                                   include_lengths=False,
+                                   pad_token=[csr_matrix((1, bow_size)), csr_matrix((1, bow_size))],
+                                   preprocessing=unpack_bow, postprocessing=expand_bow_vector,
+                                   dtype=torch.float32)
+
+        train, valid, test = datasets.RatebeerBow.splits(server, time_field=FIELD_TIME, bow_field=FIELD_BOW,
                                                          train=train_col, validation=val_col, test=test_col, **kwargs)
 
         if fix_len == -1:
             max_len = max([train.max_len, valid.max_len, test.max_len])
             FIELD_TIME.fix_length = max_len
-            FIELD_TEXT.fix_length = max_len
+            FIELD_BOW.fix_length = max_len
 
         self._train_iter, self._valid_iter, self._test_iter = data.BPTTIterator.splits(
-            (train, valid, test), batch_sizes=(batch_size, batch_size, len(test)), sort_key=lambda x: len(x.time),
-            sort_within_batch=True, repeat=False, bptt_len=bptt_length)
+                (train, valid, test), batch_sizes=(batch_size, batch_size, len(test)), sort_key=lambda x: len(x.time),
+                sort_within_batch=True, repeat=False, bptt_len=bptt_length)
         self.bptt_length = bptt_length
         self.bow_s = bow_size
 
