@@ -230,23 +230,23 @@ def quadratures(f, a=-1, b=1, n=30):
     return y.type(dtype=to.float)
 
 
-def gumbel_sample(shape, epsilon=1e-20):
+def gumbel_sample(shape, device, epsilon=1e-20):
     """
     Sample Gumbel(0,1)
     """
-    u = get_cuda(torch.rand(shape))
+    u = torch.rand(shape, device=device)
     return -torch.log(-torch.log(u + epsilon) + epsilon)
 
 
-def gumbel_softmax_sample(pi, tau):
+def gumbel_softmax_sample(pi, tau, device):
     """
     Sample Gumbel-softmax
     """
-    y = torch.log(pi) + gumbel_sample(pi.size())
+    y = torch.log(pi) + gumbel_sample(pi.size(), device)
     return torch.nn.functional.softmax(y / tau, dim=-1)
 
 
-def gumbel_softmax(pi, tau):
+def gumbel_softmax(pi, tau, device):
     """
     Gumbel-Softmax distribution.
     Implementation from https://github.com/ericjang/gumbel-softmax.
@@ -254,7 +254,7 @@ def gumbel_softmax(pi, tau):
     tau: temperature
     Returns [B, ..., n_classes] as a one-hot vector
     """
-    y = gumbel_softmax_sample(pi, tau)
+    y = gumbel_softmax_sample(pi, tau, device)
     shape = y.size()
     _, ind = y.max(dim=-1)  # [B, ...]
     y_hard = torch.zeros_like(y).view(-1, shape[-1])
