@@ -119,8 +119,8 @@ class DataLoaderRatebeer(ADataLoader):
             FIELD_BOW.fix_length = max_len
             NESTED_TEXT_FIELD.fix_length = max_len
         self._train_iter, self._valid_iter, self._test_iter = data.BPTTIterator.splits(
-                (train, valid, test), batch_sizes=(batch_size, batch_size, len(test)), sort_key=lambda x: len(x.time),
-                sort_within_batch=True, repeat=False, bptt_len=bptt_length)
+            (train, valid, test), batch_sizes=(batch_size, batch_size, len(test)), sort_key=lambda x: len(x.time),
+            sort_within_batch=True, repeat=False, bptt_len=bptt_length)
         self._bptt_length = bptt_length
         NESTED_TEXT_FIELD.build_vocab(train, vectors=emb_dim, vectors_cache=path_to_vectors, max_size=voc_size,
                                       min_freq=min_freq)
@@ -194,8 +194,8 @@ class DataLoaderRatebeerBow(ADataLoader):
             FIELD_BOW.fix_length = max_len
 
         self._train_iter, self._valid_iter, self._test_iter = data.BPTTIterator.splits(
-                (train, valid, test), batch_sizes=(batch_size, batch_size, len(test)), sort_key=lambda x: len(x.time),
-                sort_within_batch=True, repeat=False, bptt_len=bptt_length)
+            (train, valid, test), batch_sizes=(batch_size, batch_size, len(test)), sort_key=lambda x: len(x.time),
+            sort_within_batch=True, repeat=False, bptt_len=bptt_length)
         self.bptt_length = bptt_length
         self.bow_s = bow_size
 
@@ -288,6 +288,19 @@ class DataLoaderPTB(ADataLoader):
         return self.fix_length
 
 
+def _preprocess_wiki(dataset, min_len, max_len):
+    if min_len is not None:
+        dataset.examples = [sent for sent in dataset.examples if len(sent.text) >= min_len]
+    if max_len is not None:
+        dataset.examples = [sent for sent in dataset.examples if len(sent.text) <= max_len]
+    for sent in dataset.examples:
+        words = sent.text
+        words = [word for word in words if not word == '@-@']
+        sent.text = words
+    dataset.examples = [sent for sent in dataset.examples if sent.text.count('=') < 2]
+    return dataset
+
+
 class DataLoaderWiki2(ADataLoader):
     def __init__(self, **kwargs):
         batch_size = kwargs.get('batch_size')
@@ -301,19 +314,13 @@ class DataLoaderWiki2(ADataLoader):
         max_len = kwargs.pop('max_len', None)
 
         # Defining fields
-        TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>',
-                                    tokenize=tokenizer,
+        TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>', unk_token='<unk>',
+                                    tokenize=None,
                                     include_lengths=True, fix_length=fix_len, batch_first=True)
         train, valid, test = datasets.WikiText2.splits(TEXT, root=path_to_data)
 
-        if min_len is not None:
-            train.examples = [x for x in train.examples if len(x.text) >= min_len]
-            valid.examples = [x for x in valid.examples if len(x.text) >= min_len]
-            test.examples = [x for x in test.examples if len(x.text) >= min_len]
-        if max_len is not None:
-            train.examples = [x for x in train.examples if len(x.text) <= max_len]
-            valid.examples = [x for x in valid.examples if len(x.text) <= max_len]
-            test.examples = [x for x in test.examples if len(x.text) <= max_len]
+        for dataset in [train, valid, test]:
+            dataset = _preprocess_wiki(dataset, min_len, max_len)
 
         if fix_len == -1:
             TEXT.fix_length = max([train.max_len, valid.max_len, test.max_len])
@@ -366,17 +373,12 @@ class DataLoaderWiki103(ADataLoader):
 
         # Defining fields
         TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>',
-                                    tokenize=tokenizer,
+                                    tokenize=None,
                                     include_lengths=True, fix_length=fix_len, batch_first=True)
         train, valid, test = datasets.WikiText103.splits(TEXT, root=path_to_data)
-        if min_len is not None:
-            train.examples = [x for x in train.examples if len(x.text) >= min_len]
-            valid.examples = [x for x in valid.examples if len(x.text) >= min_len]
-            test.examples = [x for x in test.examples if len(x.text) >= min_len]
-        if max_len is not None:
-            train.examples = [x for x in train.examples if len(x.text) <= max_len]
-            valid.examples = [x for x in valid.examples if len(x.text) <= max_len]
-            test.examples = [x for x in test.examples if len(x.text) <= max_len]
+
+        for dataset in [train, valid, test]:
+            dataset = _preprocess_wiki(dataset, min_len, max_len)
 
         if fix_len == -1:
             TEXT.fix_length = max([train.max_len, valid.max_len, test.max_len])
