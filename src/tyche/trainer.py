@@ -3,15 +3,11 @@ import json
 import logging
 import os
 from abc import ABCMeta, abstractmethod
-from typing import Dict, Tuple, List
+from typing import Dict
 
 import torch
 import tqdm
 from tensorboardX import SummaryWriter
-from torch.nn.modules.loss import _Loss
-
-from tyche.utils import param_scheduler as p_scheduler
-from tyche.utils.helper import create_instance
 
 
 class BaseTrainingProcedure(metaclass=ABCMeta):
@@ -53,11 +49,11 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
 
     def train(self):
         e_bar = tqdm.tqdm(
-            desc="Epoch: ",
-            total=self.n_epochs,
-            unit="epoch",
-            initial=self.start_epoch,
-            postfix="train loss: nan, validation loss: nan")
+                desc="Epoch: ",
+                total=self.n_epochs,
+                unit="epoch",
+                initial=self.start_epoch,
+                postfix="train loss: -, validation loss: -")
         for epoch in range(self.start_epoch, self.n_epochs):
             train_log = self._train_epoch(epoch)
             validate_log = self._validate_epoch(epoch)
@@ -72,19 +68,22 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
     def _train_epoch(self, epoch: int) -> Dict:
         self.model.train()
         p_bar = tqdm.tqdm(
-            desc="Training batch: ", total=self.n_train_batches, unit="batch")
+                desc="Training batch: ", total=self.n_train_batches, unit="batch")
 
         epoch_stat = self._new_stat()
-        for batch_idx, input in enumerate(self.data_loader.train):
-            batch_stat = self._train_step(input, batch_idx, epoch, p_bar)
-            for k, v in batch_stat.items():
-                epoch_stat[k] += v
+        for batch_idx, data in enumerate(self.data_loader.train):
+            batch_stat = self._train_step(data, batch_idx, epoch, p_bar)
+            self._update_stats(epoch_stat, batch_stat)
         p_bar.close()
 
         self._normalize_stats(self.n_train_batches, epoch_stat)
         self._log_epoch("train/epoch/", epoch_stat)
 
         return epoch_stat
+
+    def _update_stats(self, epoch_stat, batch_stat):
+        for k, v in batch_stat.items():
+            epoch_stat[k] += v
 
     def _normalize_stats(self, n_batches, statistics):
         for k in statistics.keys():
@@ -187,7 +186,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         file_name = os.path.join(self.logging_dir, "train.log")
         fh = logging.FileHandler(file_name)
         formatter = logging.Formatter(
-            self.params["trainer"]["logging"]["formatters"]["simple"])
+                self.params["trainer"]["logging"]["formatters"]["simple"])
         fh.setLevel(logging.INFO)
 
         fh.setFormatter(formatter)
@@ -211,10 +210,10 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
 
     def __build_raw_log_str(self, prefix: str, batch_idx: int, epoch: int, logs: Dict, data_len: int, batch_size: int):
         l = prefix + ": {} [{}/{} ({:.0%})]".format(
-            epoch,
-            batch_idx * batch_size,
-            data_len,
-            100.0 * batch_idx / data_len)
+                epoch,
+                batch_idx * batch_size,
+                data_len,
+                100.0 * batch_idx / data_len)
         for k, v in logs.items():
             l += " {}: {:.6f}".format(k, v)
         return l
@@ -227,8 +226,9 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
     def __update_p_bar(self, e_bar, train_log: Dict, validate_log: Dict) -> None:
         e_bar.update()
         e_bar.set_postfix_str(
-            "train loss: {:6.4f}, validation loss: {:5.4f}".format(
-                train_log["loss"], validate_log["loss"]))
+                f"train loss: {train_log['loss']:6.4f} train {self.bm_metric}: {train_log[self.bm_metric]:6.4f}, "
+                f"validation loss: {validate_log['loss']:6.4f}, validation {self.bm_metric}: "
+                f"{validate_log[self.bm_metric]:6.4f}")
 
     def __update_best_model_flag(self, train_log: Dict, validate_log: Dict) -> None:
         self.best_model['train_loss'] = train_log['loss']
