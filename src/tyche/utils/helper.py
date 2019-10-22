@@ -134,6 +134,7 @@ def unpack_cv_parameters(params, prefix=None):
             else:
                 prefix = ".".join([prefix, key])
             param_pool = unpack_cv_parameters(value, prefix)
+            prefix = None
             if len(param_pool) > 0:
                 cv_params.extend(param_pool)
         elif isinstance(value, list):
