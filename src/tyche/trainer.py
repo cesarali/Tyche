@@ -9,6 +9,8 @@ import torch
 import tqdm
 from tensorboardX import SummaryWriter
 
+from .utils.helper import get_device
+
 
 class BaseTrainingProcedure(metaclass=ABCMeta):
 
@@ -22,7 +24,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         self._prepare_dirs()
         self.t_logger = self._setup_logging()
         self.summary = SummaryWriter(self.tensorboard_dir)
-        self.device = self.__get_device(params)
+        self.device = get_device(params)
         self.model.to(self.device)
         self.start_epoch = 0
         self.n_epochs = self.params["trainer"]["epochs"]
@@ -96,18 +98,6 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
 
     def __del__(self):
         self.summary.close()
-
-    def __get_device(self, params):
-        gpus = params.get("gpus", [])
-        if len(gpus) > 0:
-            if not torch.cuda.is_available():
-                self.logger.warning("No GPU's available. Using CPU.")
-                device = torch.device("cpu")
-            else:
-                device = torch.device("cuda:" + str(gpus[0]))
-        else:
-            device = torch.device("cpu")
-        return device
 
     def _prepare_dirs(self) -> None:
         trainer_par = self.params["trainer"]

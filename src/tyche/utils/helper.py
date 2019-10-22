@@ -199,6 +199,20 @@ def get_cuda(tensor):
     return tensor
 
 
+def get_device(params, logger=None):
+    gpus = params.get("gpus", [])
+    if len(gpus) > 0:
+        if not torch.cuda.is_available():
+            if logger is not None:
+                logger.warning("No GPU's available. Using CPU.")
+            device = torch.device("cpu")
+        else:
+            device = torch.device("cuda:" + str(gpus[0]))
+    else:
+        device = torch.device("cpu")
+    return device
+
+
 def gauss_legender_points(N=30):
     """ Returns the quadratures_nodes anb weights of the Gaussian-Lenegendre quadrature """
     beta = np.array([(n + 1.0) / np.sqrt((2.0 * n + 1.0) * (2.0 * n + 3.0))
