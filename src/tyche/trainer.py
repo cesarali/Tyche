@@ -83,11 +83,13 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
 
         return epoch_stat
 
-    def _update_stats(self, epoch_stat, batch_stat):
+    @staticmethod
+    def _update_stats(epoch_stat, batch_stat):
         for k, v in batch_stat.items():
             epoch_stat[k] += v
 
-    def _normalize_stats(self, n_batches, statistics):
+    @staticmethod
+    def _normalize_stats(n_batches, statistics):
         for k in statistics.keys():
             statistics[k] /= n_batches
         return statistics
@@ -127,7 +129,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
     def _save_model_parameters(self, file_name):
         """
         Args:
-            model_directory:
+            file_name:
         """
         with open(file_name, "w") as f:
             json.dump(self.params, f, indent=4)
@@ -186,27 +188,28 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
 
     def _log_train_step(self, epoch: int, batch_idx: int, logs: Dict, batch_size: int) -> None:
         data_len = len(self.data_loader.train.dataset)
-        l = self.__build_raw_log_str("Train epoch", batch_idx, epoch, logs, data_len, batch_size)
-        self.t_logger.info(l)
+        log = self.__build_raw_log_str("Train epoch", batch_idx, epoch, logs, data_len, batch_size)
+        self.t_logger.info(log)
         for k, v in logs.items():
             self.summary.add_scalar('train/batch/' + k, v, self.global_step)
 
     def _log_validation_step(self, epoch: int, batch_idx: int, logs: Dict, batch_size: int) -> None:
         data_len = len(self.data_loader.validate.dataset)
-        l = self.__build_raw_log_str("Validation epoch", batch_idx, epoch, logs, data_len, batch_size)
-        self.t_logger.info(l)
+        log = self.__build_raw_log_str("Validation epoch", batch_idx, epoch, logs, data_len, batch_size)
+        self.t_logger.info(log)
         # for k, v in logs.items():
         #     self.summary.add_scalar('validate/batch/' + k, v, self.global_step)
 
-    def __build_raw_log_str(self, prefix: str, batch_idx: int, epoch: int, logs: Dict, data_len: int, batch_size: int):
-        l = prefix + ": {} [{}/{} ({:.0%})]".format(
+    @staticmethod
+    def __build_raw_log_str(prefix: str, batch_idx: int, epoch: int, logs: Dict, data_len: int, batch_size: int):
+        sb = prefix + ": {} [{}/{} ({:.0%})]".format(
                 epoch,
                 batch_idx * batch_size,
                 data_len,
                 100.0 * batch_idx / data_len)
         for k, v in logs.items():
-            l += " {}: {:.6f}".format(k, v)
-        return l
+            sb += " {}: {:.6f}".format(k, v)
+        return sb
 
     def _check_and_save_best_model(self, train_log: Dict, validate_log: Dict) -> None:
         if validate_log[self.bm_metric] < self.best_model['val_metric']:
