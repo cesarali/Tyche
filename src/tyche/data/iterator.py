@@ -55,13 +55,23 @@ class BPTTPointIterator(Iterator):
                 self.iterations += 1
                 self._iterations_this_epoch += 1
                 batch_size: int = len(batch)
-                seq_len, time, mark = self.__series_2_bptt(batch, batch_size)
                 dataset = Dataset(examples=self.dataset.examples, fields=[
-                    ('time', self.dataset.fields['time']), ('mark', self.dataset.fields['mark'])])
-
-                yield (Batch.fromvars(
-                        dataset, batch_size,
-                        time=(ti, l), mark=m) for ti, l, m in zip(time, seq_len, mark))
+                    ('time', self.dataset.fields['time']), ('mark', self.dataset.fields['mark']),
+                    ('target_time', Field(use_vocab=False)), ('target_mark', Field(use_vocab=False))])
+                if self.train:
+                    seq_len, time, mark = self.__series_2_bptt(batch, batch_size)
+                    yield (Batch.fromvars(
+                            dataset, batch_size,
+                            time=(ti[:, :, :2], l),
+                            mark=m[:, :, 0],
+                            target_time=ti[:, :, -1],
+                            target_mark=m[:, :, -1]) for ti, l, m in zip(time, seq_len, mark))
+                else:
+                    batch.target_time = batch.time[0][:, :, 2]
+                    batch.time = (batch.time[0][:, :, :2], batch.time[1])
+                    batch.target_mark = batch.mark[:, :, 1]
+                    batch.mark = batch.mark[:, :, 0]
+                    yield batch
 
             if not self.repeat:
                 return
@@ -254,8 +264,8 @@ class BPTTIterator(Iterator):
                 else:
                     batch.target_bow = batch.bow[:, :, 1]
                     batch.bow = batch.bow[:, :, 0]
-                    batch.time = (batch.time[0][:, :, :2], batch.time[1])
                     batch.target_time = batch.time[0][:, :, -1]
+                    batch.time = (batch.time[0][:, :, :2], batch.time[1])
                     yield batch
 
             if not self.repeat:
