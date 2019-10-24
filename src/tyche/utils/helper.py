@@ -134,6 +134,7 @@ def unpack_cv_parameters(params, prefix=None):
             else:
                 prefix = ".".join([prefix, key])
             param_pool = unpack_cv_parameters(value, prefix)
+            prefix = None
             if len(param_pool) > 0:
                 cv_params.extend(param_pool)
         elif isinstance(value, list):
@@ -196,6 +197,20 @@ def get_cuda(tensor):
     if torch.cuda.is_available():
         tensor = tensor.cuda()
     return tensor
+
+
+def get_device(params, logger=None):
+    gpus = params.get("gpus", [])
+    if len(gpus) > 0:
+        if not torch.cuda.is_available():
+            if logger is not None:
+                logger.warning("No GPU's available. Using CPU.")
+            device = torch.device("cpu")
+        else:
+            device = torch.device("cuda:" + str(gpus[0]))
+    else:
+        device = torch.device("cpu")
+    return device
 
 
 def gauss_legender_points(N=30):

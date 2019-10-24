@@ -3,7 +3,6 @@ import torch
 from torchtext.data import Dataset, Field
 from torchtext.data.batch import Batch
 from torchtext.data.iterator import Iterator
-from torchtext.data.iterator import BucketIterator
 
 
 class BPTTPointIterator(Iterator):
@@ -56,23 +55,35 @@ class BPTTPointIterator(Iterator):
                 self.iterations += 1
                 self._iterations_this_epoch += 1
                 batch_size: int = len(batch)
-                seq_len, time = self.__series_2_bptt(batch, batch_size)
                 dataset = Dataset(examples=self.dataset.examples, fields=[
-                    ('time', self.dataset.fields['time'])])
+                    ('time', self.dataset.fields['time']), ('mark', self.dataset.fields['mark']),
+                    ('target_time', Field(use_vocab=False)), ('target_mark', Field(use_vocab=False))])
+                if self.train:
+                    seq_len, time, mark = self.__series_2_bptt(batch, batch_size)
+                    yield (Batch.fromvars(
+                            dataset, batch_size,
+                            time=(ti[:, :, :2], l),
+                            mark=m[:, :, 0],
+                            target_time=ti[:, :, -1],
+                            target_mark=m[:, :, -1]) for ti, l, m in zip(time, seq_len, mark))
+                else:
+                    batch.target_time = batch.time[0][:, :, 2]
+                    batch.time = (batch.time[0][:, :, :2], batch.time[1])
+                    batch.target_mark = batch.mark[:, :, 1]
+                    batch.mark = batch.mark[:, :, 0]
+                    yield batch
 
-                yield (Batch.fromvars(
-                    dataset, batch_size,
-                    time=(ti, l)) for ti, l in zip(time, seq_len))
-
-                if not self.repeat:
-                    return
+            if not self.repeat:
+                return
 
     def __series_2_bptt(self, batch: Batch, batch_size: int):
         time, seq_len = batch.time
+        mark = batch.mark
         seq_len = seq_len.type(torch.int32).numpy()
 
         num_windows = int(time.size(1) / self.bptt_len)
         time = time.view(batch_size, num_windows, self.bptt_len, -1)
+        mark = mark.view(batch_size, num_windows, self.bptt_len, -1)
 
         f_w = seq_len / self.bptt_len
         f_w = f_w.astype(np.int)
@@ -86,8 +97,9 @@ class BPTTPointIterator(Iterator):
         seq_len = torch.from_numpy(np.stack(list(map(lambda x: x[:num_windows], f_w_m))))
         time = time.unbind(1)
         seq_len = seq_len.unbind(1)
+        mark = mark.unbind(1)
 
-        return seq_len, time
+        return seq_len, time, mark
 
 
 class BPTTNestedIterator(Iterator):
@@ -147,11 +159,11 @@ class BPTTNestedIterator(Iterator):
                 if self.train:
                     seq_len, text, time, bow = self.__series_2_bptt(batch, batch_size)
                     yield (Batch.fromvars(
-                        dataset, batch_size,
-                        time=(t[:, :, :2], l),
-                        bow=b,
-                        target_time=t[:, :, -1],
-                        target_text=(te, sl)) for t, b, te, sl, l in zip(time, bow, text[0], text[1], seq_len))
+                            dataset, batch_size,
+                            time=(t[:, :, :2], l),
+                            bow=b,
+                            target_time=t[:, :, -1],
+                            target_text=(te, sl)) for t, b, te, sl, l in zip(time, bow, text[0], text[1], seq_len))
                 else:
 
                     batch.target_text = batch.text
@@ -252,8 +264,8 @@ class BPTTIterator(Iterator):
                 else:
                     batch.target_bow = batch.bow[:, :, 1]
                     batch.bow = batch.bow[:, :, 0]
-                    batch.time = (batch.time[0][:, :, :2], batch.time[1])
                     batch.target_time = batch.time[0][:, :, -1]
+                    batch.time = (batch.time[0][:, :, :2], batch.time[1])
                     yield batch
 
             if not self.repeat:
