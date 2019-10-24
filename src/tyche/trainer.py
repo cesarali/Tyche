@@ -30,6 +30,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         self.model.to(self.device)
         self.start_epoch = 0
         self.n_epochs = self.params["trainer"]["epochs"]
+        self.save_after_epoch = self.params["trainer"]["save_after_epoch"]
         self.batch_size = self.params["data_loader"]["args"]["batch_size"]
         self.bm_metric = self.params["trainer"]["args"]['bm_metric']
 
@@ -63,8 +64,9 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
             validate_log = self._validate_epoch(epoch)
 
             self.__update_p_bar(e_bar, train_log, validate_log)
-            self._check_and_save_best_model(train_log, validate_log)
-            self._save_check_point(epoch)
+            if epoch % self.save_after_epoch == 0:
+                self._check_and_save_best_model(train_log, validate_log)
+                self._save_check_point(epoch)
         e_bar.close()
         self.best_model['name'] = self.params["name"]
         return self.best_model
