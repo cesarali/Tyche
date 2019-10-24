@@ -32,7 +32,7 @@ class ADataLoader(ABC):
 
 
 class DataLoaderPTB(ADataLoader):
-    def __init__(self, **kwargs):
+    def __init__(self, device, **kwargs):
         batch_size = kwargs.get('batch_size')
         path_to_data = kwargs.pop('path_to_data')
         path_to_vectors = kwargs.pop('path_to_vectors')
@@ -66,7 +66,8 @@ class DataLoaderPTB(ADataLoader):
                 batch_sizes=(batch_size, batch_size, len(test)),
                 sort_key=lambda x: len(x.text),
                 sort_within_batch=True,
-                repeat=False
+                repeat=False,
+                device=device
         )
 
         TEXT.build_vocab(train, vectors=emb_dim, vectors_cache=path_to_vectors,
@@ -109,7 +110,7 @@ def _preprocess_wiki(dataset, min_len, max_len):
 
 
 class DataLoaderWiki2(ADataLoader):
-    def __init__(self, **kwargs):
+    def __init__(self, device, **kwargs):
         batch_size = kwargs.get('batch_size')
         path_to_data = kwargs.pop('path_to_data')
         path_to_vectors = kwargs.pop('path_to_vectors')
@@ -137,7 +138,9 @@ class DataLoaderWiki2(ADataLoader):
                 batch_sizes=(batch_size, batch_size, len(test)),
                 sort_key=lambda x: len(x.text),
                 sort_within_batch=True,
-                repeat=False
+                repeat=False,
+                device=device
+
         )
 
         TEXT.build_vocab(train, vectors=emb_dim, vectors_cache=path_to_vectors, max_size=voc_size,
@@ -167,7 +170,7 @@ class DataLoaderWiki2(ADataLoader):
 
 
 class DataLoaderWiki103(ADataLoader):
-    def __init__(self, **kwargs):
+    def __init__(self, device, **kwargs):
         batch_size = kwargs.get('batch_size')
         path_to_data = kwargs.pop('path_to_data')
         path_to_vectors = kwargs.pop('path_to_vectors')
@@ -195,7 +198,8 @@ class DataLoaderWiki103(ADataLoader):
                 batch_sizes=(batch_size, batch_size, len(test)),
                 sort_key=lambda x: len(x.text),
                 sort_within_batch=True,
-                repeat=False
+                repeat=False,
+                device=device
         )
 
         TEXT.build_vocab(train, vectors=emb_dim, vectors_cache=path_to_vectors, max_size=voc_size,
