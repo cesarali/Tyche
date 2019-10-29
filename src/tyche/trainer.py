@@ -2,15 +2,16 @@ import datetime
 import json
 import logging
 import os
-from abc import ABCMeta, abstractmethod
+from abc import ABCMeta
+from typing import Any
 from typing import Dict
-import yaml
 
 import torch
 import tqdm
+import yaml
 from tensorboardX import SummaryWriter
 
-from .utils.helper import get_device
+from .utils.helper import get_device, is_primitive
 
 
 class BaseTrainingProcedure(metaclass=ABCMeta):
@@ -48,9 +49,22 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         if resume:
             self._resume_check_point(resume)
 
-    @abstractmethod
-    def _train_step(self):
-        raise NotImplementedError
+    def _train_step(self, minibatch: Any, batch_idx: int, epoch: int, p_bar):
+        stats = self.model.train_step(minibatch, self.optimizer, self.global_step)
+        self.tensor_2_item(stats)
+        self._log_train_step(epoch, batch_idx, stats)
+        p_bar.set_postfix_str("loss: {:5.4f}".format(stats['loss']))
+        p_bar.update()
+        self.global_step += 1
+        return stats
+
+    def _validate_step(self, minibatch: Any, batch_idx: int, epoch: int, p_bar):
+        stats = self.model.validate_step(minibatch)
+        self.tensor_2_item(stats)
+        self._log_validation_step(epoch, batch_idx, stats)
+        p_bar.set_postfix_str("loss: {:5.4f}".format(stats['loss']))
+        p_bar.update()
+        return stats
 
     def train(self):
         e_bar = tqdm.tqdm(
@@ -76,31 +90,56 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         p_bar = tqdm.tqdm(
                 desc='Training batch: ', total=self.n_train_batches, unit='batch')
 
-        epoch_stat = self._new_stat()
+        epoch_stats = None
         for batch_idx, data in enumerate(self.data_loader.train):
             batch_stat = self._train_step(data, batch_idx, epoch, p_bar)
-            self._update_stats(epoch_stat, batch_stat)
+            epoch_stats = self._update_stats(epoch_stats, batch_stat)
         p_bar.close()
 
-        self._normalize_stats(self.n_train_batches, epoch_stat)
-        self._log_epoch('train/epoch/', epoch_stat)
+        self._normalize_stats(self.n_train_batches, epoch_stats)
+        self._log_epoch('train/epoch/', epoch_stats)
+
+        return epoch_stats
+
+    def _validate_epoch(self, epoch: int) -> Dict:
+        self.model.eval()
+        with torch.no_grad():
+            p_bar = tqdm.tqdm(
+                    desc="Validation batch: ",
+                    total=self.n_val_batches,
+                    unit="batch")
+
+            epoch_stats = None
+            for batch_idx, data in enumerate(self.data_loader.validate):
+                batch_stat = self._validate_step(data, batch_idx, epoch, p_bar)
+                epoch_stats = self._update_stats(epoch_stats, batch_stat)
+            p_bar.close()
+
+            self._normalize_stats(self.n_val_batches, epoch_stats)
+            self._log_epoch('validate/epoch/', epoch_stats)
+
+        return epoch_stats
+
+    @staticmethod
+    def _update_stats(epoch_stat, batch_stat):
+        if epoch_stat is None:
+            return batch_stat.copy()
+        for k, v in batch_stat.items():
+            epoch_stat[k] += v
 
         return epoch_stat
 
     @staticmethod
-    def _update_stats(epoch_stat, batch_stat):
-        for k, v in batch_stat.items():
-            epoch_stat[k] += v
-
-    @staticmethod
     def _normalize_stats(n_batches, statistics):
-        for k in statistics.keys():
-            statistics[k] /= n_batches
+        for k, v in statistics.items():
+            if is_primitive(v):
+                statistics[k] /= n_batches
         return statistics
 
     def _log_epoch(self, log_label, statistics):
         for k, v in statistics.items():
-            self.summary.add_scalar(log_label + k, v, self.global_step)
+            if is_primitive(v):
+                self.summary.add_scalar(log_label + k, v, self.global_step)
 
     def __del__(self):
         self.summary.close()
@@ -195,19 +234,21 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
 
         return logger
 
-    def _log_train_step(self, epoch: int, batch_idx: int, logs: Dict, batch_size: int) -> None:
+    def _log_train_step(self, epoch: int, batch_idx: int, stats: Dict) -> None:
         data_len = len(self.data_loader.train.dataset)
-        log = self.__build_raw_log_str('Train epoch', batch_idx, epoch, logs, data_len, batch_size)
+        log = self.__build_raw_log_str('Train epoch', batch_idx, epoch, stats, data_len, self.batch_size)
+        self.t_logger.info(log)
+        for k, v in stats.items():
+            if is_primitive(v):
+                self.summary.add_scalar('train/batch/' + k, v, self.global_step)
+
+    def _log_validation_step(self, epoch: int, batch_idx: int, logs: Dict) -> None:
+        data_len = len(self.data_loader.validate.dataset)
+        log = self.__build_raw_log_str('Validation epoch', batch_idx, epoch, logs, data_len, self.batch_size)
         self.t_logger.info(log)
         for k, v in logs.items():
-            self.summary.add_scalar('train/batch/' + k, v, self.global_step)
-
-    def _log_validation_step(self, epoch: int, batch_idx: int, logs: Dict, batch_size: int) -> None:
-        data_len = len(self.data_loader.validate.dataset)
-        log = self.__build_raw_log_str('Validation epoch', batch_idx, epoch, logs, data_len, batch_size)
-        self.t_logger.info(log)
-        # for k, v in logs.items():
-        #     self.summary.add_scalar('validate/batch/' + k, v, self.global_step)
+            if is_primitive(v):
+                self.summary.add_scalar('validate/batch/' + k, v, self.global_step)
 
     @staticmethod
     def __build_raw_log_str(prefix: str, batch_idx: int, epoch: int, logs: Dict, data_len: int, batch_size: int):
@@ -217,7 +258,8 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
                 data_len,
                 100.0 * batch_idx / data_len)
         for k, v in logs.items():
-            sb += ' {}: {:.6f}'.format(k, v)
+            if is_primitive(v):
+                sb += ' {}: {:.6f}'.format(k, v)
         return sb
 
     def _check_and_save_best_model(self, train_log: Dict, validate_log: Dict) -> None:
@@ -237,3 +279,9 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         self.best_model['val_loss'] = validate_log['loss']
         self.best_model['train_metric'] = train_log[self.bm_metric]
         self.best_model['val_metric'] = validate_log[self.bm_metric]
+
+    @staticmethod
+    def tensor_2_item(stats):
+        for key, value in stats.items():
+            if type(value) is torch.Tensor:
+                stats[key] = value.item()

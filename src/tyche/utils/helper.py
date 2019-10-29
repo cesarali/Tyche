@@ -25,7 +25,11 @@ def create_class_instance(module_name, class_name, kwargs, *args):
     """
     module = import_module(module_name)
     clazz = getattr(module, class_name)
-    instance = clazz(*args, **kwargs)
+    if kwargs is None:
+        instance = clazz(*args)
+    else:
+        instance = clazz(*args, **kwargs)
+
     return instance
 
 
@@ -276,3 +280,7 @@ def gumbel_softmax(pi, tau, device):
     y_hard.scatter_(1, ind.view(-1, 1), 1)
     y_hard = y_hard.view(*shape)
     return (y_hard - y).detach() + y
+
+
+def is_primitive(v):
+    return isinstance(v, (int, float, bool, str))
