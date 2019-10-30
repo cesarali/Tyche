@@ -16,10 +16,9 @@ from .utils.helper import get_device, is_primitive
 
 class BaseTrainingProcedure(metaclass=ABCMeta):
 
-    def __init__(self, model, metrics, optimizer, resume, params, data_loader, train_logger, **kwargs):
+    def __init__(self, model, optimizer, resume, params, data_loader, train_logger=None, **kwargs):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.model = model
-        self.metrics = metrics
         self.optimizer = optimizer
         self.params = params
 
