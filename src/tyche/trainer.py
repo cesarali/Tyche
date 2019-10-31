@@ -62,7 +62,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         stats = self.model.train_step(minibatch, self.optimizer, self.global_step, scheduler=self.schedulers)
         self.tensor_2_item(stats)
         self._log_train_step(epoch, batch_idx, stats)
-        p_bar.set_postfix_str("loss: {:5.4f}".format(stats['loss']))
+        p_bar.set_postfix_str("loss: {:4.8g}".format(stats['loss']))
         p_bar.update()
         self.global_step += 1
         return stats
@@ -71,7 +71,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         stats = self.model.validate_step(minibatch)
         self.tensor_2_item(stats)
         self._log_validation_step(epoch, batch_idx, stats)
-        p_bar.set_postfix_str("loss: {:5.4f}".format(stats['loss']))
+        p_bar.set_postfix_str("loss: {:4.8g}".format(stats['loss']))
         p_bar.update()
         return stats
 
@@ -282,9 +282,9 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
     def __update_p_bar(self, e_bar, train_log: Dict, validate_log: Dict) -> None:
         e_bar.update()
         e_bar.set_postfix_str(
-                f"train loss: {train_log['loss']:6.4f} train {self.bm_metric}: {train_log[self.bm_metric]:6.4f}, "
-                f"validation loss: {validate_log['loss']:6.4f}, validation {self.bm_metric}: "
-                f"{validate_log[self.bm_metric]:6.4f}")
+                f"train loss: {train_log['loss']:6.6g} train {self.bm_metric}: {train_log[self.bm_metric]:6.6g}, "
+                f"validation loss: {validate_log['loss']:6.6g}, validation {self.bm_metric}: "
+                f"{validate_log[self.bm_metric]:6.4g}")
 
     def __update_best_model_flag(self, train_log: Dict, validate_log: Dict) -> None:
         self.best_model['train_loss'] = train_log['loss']
