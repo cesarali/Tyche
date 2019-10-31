@@ -32,7 +32,7 @@ class AModel(nn.Module, ABC):
         raise NotImplementedError("The metric method is not implemented in your class!")
 
     @abstractmethod
-    def train_step(self, minibatch: Any, optimizer: Any, step: int) -> Dict:
+    def train_step(self, minibatch: Any, optimizer: Any, step: int, scheduler: Any = None) -> Dict:
         raise NotImplementedError("The train_step method is not implemented in your class!")
 
     @abstractmethod

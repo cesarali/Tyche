@@ -11,7 +11,7 @@ import tqdm
 import yaml
 from tensorboardX import SummaryWriter
 
-from .utils.helper import get_device, is_primitive
+from .utils.helper import get_device, is_primitive, create_instance
 
 
 class BaseTrainingProcedure(metaclass=ABCMeta):
@@ -34,6 +34,16 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         self.batch_size = self.params['data_loader']['args']['batch_size']
         self.bm_metric = self.params['trainer']['args']['bm_metric']
 
+        if "schedulers" in self.params['trainer']['args']:
+            self.schedulers = dict()
+            schedulers_ = create_instance('schedulers', self.params['trainer']['args'])
+            if type(schedulers_) is not list:
+                schedulers_ = [schedulers_]
+            for a, b in zip(self.params['trainer']['args']['schedulers'], schedulers_):
+                self.schedulers[a["label"]] = b
+        else:
+            self.schedulers = None
+
         self.data_loader = data_loader
         self.n_train_batches = len(data_loader.train)
         self.n_val_batches = len(data_loader.validate)
@@ -49,7 +59,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
             self._resume_check_point(resume)
 
     def _train_step(self, minibatch: Any, batch_idx: int, epoch: int, p_bar):
-        stats = self.model.train_step(minibatch, self.optimizer, self.global_step)
+        stats = self.model.train_step(minibatch, self.optimizer, self.global_step, scheduler=self.schedulers)
         self.tensor_2_item(stats)
         self._log_train_step(epoch, batch_idx, stats)
         p_bar.set_postfix_str("loss: {:5.4f}".format(stats['loss']))
@@ -168,9 +178,11 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
             'model_type': model_type,
             'epoch': kwargs.get('epoch'),
             'model_state': self.model.state_dict(),
-            'optimizer': self.optimizer.state_dict(),
             'params': self.params
         }
+        for key in self.optimizer:
+            state[key] = self.optimizer[key].state_dict()
+
         torch.save(state, file_name)
 
     def _save_model_parameters(self, file_name):
@@ -214,7 +226,8 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         self.params = state['params']
         self.start_epoch = state['epoch'] + 1
         self.model.load_state_dict(state['model_state'])
-        self.optimizer.load_state_dict(state['optimizer'])
+        for key in self.optimizer:
+            self.optimizer[key].load_state_dict(state[key])
         self.logger.info('Finished loading checkpoint: {} ...'.format(path))
 
     def _setup_logging(self) -> logging.Logger:

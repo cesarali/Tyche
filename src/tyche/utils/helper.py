@@ -284,3 +284,13 @@ def gumbel_softmax(pi, tau, device):
 
 def is_primitive(v):
     return isinstance(v, (int, float, bool, str))
+
+
+def free_params(module):
+    for p in module.parameters():
+        p.requires_grad = True
+
+
+def frozen_params(module):
+    for p in module.parameters():
+        p.requires_grad = False
