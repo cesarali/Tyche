@@ -9,11 +9,14 @@ from tyche.utils.helper import create_instance
 class AModel(nn.Module, ABC):
     def __init__(self, **kwargs):
         super().__init__()
-        metrics = create_instance('metrics', kwargs)
         self.reduce = kwargs.get('reduce')
-        if type(metrics) is not list:
-            metrics = [metrics]
-        self.metrics = metrics
+        if 'metrics' in kwargs:
+            metrics = create_instance('metrics', kwargs)
+            if type(metrics) is not list:
+                metrics = [metrics]
+            self.metrics = metrics
+        else:
+            self.metrics = None
 
     @abstractmethod
     def new_stats(self) -> Dict:
