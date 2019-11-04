@@ -279,7 +279,7 @@ class BPTTIterator(Iterator):
         bow = bow.view(batch_size, num_windows, self.bptt_len, 2, -1)
         f_w = seq_len / self.bptt_len
         p_w = seq_len % self.bptt_len
-        z_w = np.clip(num_windows - f_w - 1, 0, None)
+        z_w = torch.clamp(num_windows - f_w - 1, 0, None)
 
         f_w_m = map(lambda x: torch.ones(x, dtype=torch.int64) * self.bptt_len, f_w)
         f_w_m = map(lambda x, y: torch.cat((x, y)), f_w_m, p_w.view(-1, 1))
