@@ -62,12 +62,12 @@ class DataLoaderPTB(ADataLoader):
             TEXT.fix_length = max([train.max_len, valid.max_len, test.max_len])
 
         self._train_iter, self._valid_iter, self._test_iter = BucketIterator.splits(
-                (train, valid, test),
-                batch_sizes=(batch_size, batch_size, len(test)),
-                sort_key=lambda x: len(x.text),
-                sort_within_batch=True,
-                repeat=False,
-                device=device
+            (train, valid, test),
+            batch_sizes=(batch_size, batch_size, len(test)),
+            sort_key=lambda x: len(x.text),
+            sort_within_batch=True,
+            repeat=False,
+            device=device
         )
 
         TEXT.build_vocab(train, vectors=emb_dim, vectors_cache=path_to_vectors,
@@ -133,13 +133,13 @@ class DataLoaderWiki2(ADataLoader):
         if fix_len == -1:
             TEXT.fix_length = max([train.max_len, valid.max_len, test.max_len])
 
-        self._train_iter, self._valid_iter, self._test_iter = data.BucketIterator.splits(
-                (train, valid, test),
-                batch_sizes=(batch_size, batch_size, len(test)),
-                sort_key=lambda x: len(x.text),
-                sort_within_batch=True,
-                repeat=False,
-                device=device
+        self._train_iter, self._valid_iter, self._test_iter = BucketIterator.splits(
+            (train, valid, test),
+            batch_sizes=(batch_size, batch_size, len(test)),
+            sort_key=lambda x: len(x.text),
+            sort_within_batch=True,
+            repeat=False,
+            device=device
 
         )
 
@@ -193,13 +193,13 @@ class DataLoaderWiki103(ADataLoader):
         if fix_len == -1:
             TEXT.fix_length = max([train.max_len, valid.max_len, test.max_len])
 
-        self._train_iter, self._valid_iter, self._test_iter = data.BucketIterator.splits(
-                (train, valid, test),
-                batch_sizes=(batch_size, batch_size, len(test)),
-                sort_key=lambda x: len(x.text),
-                sort_within_batch=True,
-                repeat=False,
-                device=device
+        self._train_iter, self._valid_iter, self._test_iter = BucketIterator.splits(
+            (train, valid, test),
+            batch_sizes=(batch_size, batch_size, len(test)),
+            sort_key=lambda x: len(x.text),
+            sort_within_batch=True,
+            repeat=False,
+            device=device
         )
 
         TEXT.build_vocab(train, vectors=emb_dim, vectors_cache=path_to_vectors, max_size=voc_size,
