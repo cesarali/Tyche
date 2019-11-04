@@ -281,9 +281,9 @@ class BPTTIterator(Iterator):
         p_w = seq_len % self.bptt_len
         z_w = torch.clamp(num_windows - f_w - 1, 0, None)
 
-        f_w_m = map(lambda x: torch.ones(x, dtype=torch.int64) * self.bptt_len, f_w)
+        f_w_m = map(lambda x: torch.ones(x, dtype=torch.int64, device=self.device) * self.bptt_len, f_w)
         f_w_m = map(lambda x, y: torch.cat((x, y)), f_w_m, p_w.view(-1, 1))
-        z_w_m = map(lambda x: torch.zeros(x, dtype=torch.int64), z_w.view(-1, 1))
+        z_w_m = map(lambda x: torch.zeros(x, dtype=torch.int64, device=self.device), z_w.view(-1, 1))
         f_w_m = map(lambda x, y: torch.cat((x, y)), f_w_m, z_w_m)
         seq_len = torch.stack(list(map(lambda x: x[:num_windows], f_w_m)))
         time = time.unbind(1)
