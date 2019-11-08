@@ -132,7 +132,7 @@ class BPTTNestedIterator(Iterator):
 
     def __init__(self, dataset, batch_size, bptt_len, **kwargs):
         self.bptt_len = bptt_len
-        super(BPTTIterator, self).__init__(dataset, batch_size, **kwargs)
+        super().__init__(dataset, batch_size, **kwargs)
 
     def __iter__(self):
         while True:
@@ -154,14 +154,14 @@ class BPTTNestedIterator(Iterator):
                 # should we have many batches or we should have one long batch with many windows
                 batch_size: int = len(batch)
                 dataset = Dataset(examples=self.dataset.examples, fields=[
-                    ('time', self.dataset.fields['time']), ('bow', self.dataset.fields['bow']),
+                    ('time', self.dataset.fields['time']), ('text', self.dataset.fields['text']),
                     ('target_time', Field(use_vocab=False)), ('target_text', Field(use_vocab=False))])
                 if self.train:
                     seq_len, text, time, bow = self.__series_2_bptt(batch, batch_size)
                     yield (Batch.fromvars(
                             dataset, batch_size,
                             time=(t[:, :, :2], l),
-                            bow=b,
+                            text=b,
                             target_time=t[:, :, -1],
                             target_text=(te, sl)) for t, b, te, sl, l in zip(time, bow, text[0], text[1], seq_len))
                 else:
@@ -229,6 +229,15 @@ class BPTTIterator(Iterator):
 
     def __init__(self, dataset, batch_size, bptt_len, **kwargs):
         self.bptt_len = bptt_len
+        if 'bow' in dataset.fields.keys():
+            semantic_key = 'bow'
+            self.__bptt_2_minibatch = self.__bow_bptt_2_minibatches
+        else:
+            semantic_key = 'text'
+            self.__bptt_2_minibatch = self.__text_bptt_2_minibatches
+        target_key = 'target_' + semantic_key
+        self.fields = list(dataset.fields.items()) + [('target_time', Field(use_vocab=False)),
+                                                      (target_key, Field(use_vocab=False))]
         super(BPTTIterator, self).__init__(dataset, batch_size, **kwargs)
 
     def __iter__(self):
@@ -250,17 +259,10 @@ class BPTTIterator(Iterator):
                 self._iterations_this_epoch += 1
                 # should we have many batches or we should have one long batch with many windows
                 batch_size: int = len(batch)
-                dataset = Dataset(examples=self.dataset.examples, fields=[
-                    ('time', self.dataset.fields['time']), ('bow', self.dataset.fields['bow']),
-                    ('target_time', Field(use_vocab=False)), ('target_bow', Field(use_vocab=False))])
+
+                dataset = Dataset(examples=self.dataset.examples, fields=self.fields)
                 if self.train:
-                    seq_len, time, bow = self.__series_2_bptt(batch, batch_size)
-                    yield (Batch.fromvars(
-                            dataset, batch_size,
-                            time=(t[:, :, :2], l),
-                            bow=b[:, :, 0],
-                            target_time=t[:, :, -1],
-                            target_bow=b[:, :, 0]) for t, b, l in zip(time, bow, seq_len))
+                    yield from self.__bptt_2_minibatch(batch, batch_size, dataset)
                 else:
                     batch.target_bow = batch.bow[:, :, 1]
                     batch.bow = batch.bow[:, :, 0]
@@ -271,16 +273,51 @@ class BPTTIterator(Iterator):
             if not self.repeat:
                 return
 
-    def __series_2_bptt(self, batch: Batch, batch_size: int):
+    def __bow_bptt_2_minibatches(self, batch, batch_size, dataset):
+        time, time_len, bow = self.__bow_series_2_bptt(batch, batch_size)
+        yield (Batch.fromvars(dataset, batch_size,
+                              time=(t[:, :, :2], l),
+                              bow=b[:, :, 0],
+                              target_time=t[:, :, -1],
+                              target_bow=b[:, :, -1])
+               for t, l, b in zip(time, time_len, bow))
+
+    def __text_bptt_2_minibatches(self, batch, batch_size, dataset):
+        time, time_len, text, text_len = self.__text_series_2_bptt(batch, batch_size)
+        yield (Batch.fromvars(dataset, batch_size,
+                              time=(ti[:, :, :2], ti_l),
+                              text=(te[:, :, 0], te_l),
+                              target_time=ti[:, :, -1],
+                              target_text=te[:, :, -1])
+               for ti, ti_l, te, te_l in zip(time, time_len, text, text_len))
+
+    def __text_series_2_bptt(self, batch: Batch, batch_size: int):
+        time, seq_len = batch.time
+        text, _, text_len = batch.text
+        tmp = torch.stack((text[:, :-1], text[:, 1:]), dim=2)
+        text = torch.cat((tmp, tmp[:, -1, None]), dim=1)
+        num_windows = int(time.size(1) / self.bptt_len)
+        text = text.view(batch_size, num_windows, self.bptt_len, 2, -1)
+        text_len = text_len.view(batch_size, num_windows, -1)
+        time, seq_len = self.__series_2_bppt(batch_size, num_windows, seq_len, time)
+        text = text.unbind(1)
+        text_len = text_len.unbind(1)
+        return time, seq_len, text, text_len
+
+    def __bow_series_2_bptt(self, batch: Batch, batch_size: int):
         time, seq_len = batch.time
         bow = batch.bow
         num_windows = int(time.size(1) / self.bptt_len)
-        time = time.view(batch_size, num_windows, self.bptt_len, -1)
         bow = bow.view(batch_size, num_windows, self.bptt_len, 2, -1)
+        time, seq_len = self.__series_2_bppt(batch_size, num_windows, seq_len, time)
+        bow = bow.unbind(1)
+        return time, seq_len, bow
+
+    def __series_2_bppt(self, batch_size, num_windows, seq_len, time):
+        time = time.view(batch_size, num_windows, self.bptt_len, -1)
         f_w = seq_len / self.bptt_len
         p_w = seq_len % self.bptt_len
         z_w = torch.clamp(num_windows - f_w - 1, 0, None)
-
         f_w_m = map(lambda x: torch.ones(x, dtype=torch.int64, device=self.device) * self.bptt_len, f_w)
         f_w_m = map(lambda x, y: torch.cat((x, y)), f_w_m, p_w.view(-1, 1))
         z_w_m = map(lambda x: torch.zeros(x, dtype=torch.int64, device=self.device), z_w.view(-1, 1))
@@ -288,6 +325,4 @@ class BPTTIterator(Iterator):
         seq_len = torch.stack(list(map(lambda x: x[:num_windows], f_w_m)))
         time = time.unbind(1)
         seq_len = seq_len.unbind(1)
-        bow = bow.unbind(1)
-
-        return seq_len, time, bow
+        return time, seq_len
