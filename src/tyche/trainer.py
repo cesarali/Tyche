@@ -226,7 +226,10 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         self.logger.info('Loading checkpoint: {} ...'.format(path))
         state = torch.load(path)
         self.params = state['params']
-        self.start_epoch = state['epoch'] + 1
+        if state['epoch'] is None:
+            self.start_epoch = 1
+        else:
+            self.start_epoch = state['epoch'] + 1
         self.model.load_state_dict(state['model_state'])
         for key in self.optimizer:
             self.optimizer[key].load_state_dict(state[key])
