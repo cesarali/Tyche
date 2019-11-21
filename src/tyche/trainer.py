@@ -23,7 +23,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         self.params = params
 
         self._prepare_dirs()
-        self.__save_params()
+        self._save_params()
         self.t_logger = self._setup_logging()
         self.summary = SummaryWriter(self.tensorboard_dir)
         self.device = get_device(params)
@@ -58,23 +58,6 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         if resume:
             self._resume_check_point(resume)
 
-    def _train_step(self, minibatch: Any, batch_idx: int, epoch: int, p_bar):
-        stats = self.model.train_step(minibatch, self.optimizer, self.global_step, scheduler=self.schedulers)
-        self.tensor_2_item(stats)
-        self._log_train_step(epoch, batch_idx, stats)
-        p_bar.set_postfix_str("loss: {:4.8g}".format(stats['loss']))
-        p_bar.update()
-        self.global_step += 1
-        return stats
-
-    def _validate_step(self, minibatch: Any, batch_idx: int, epoch: int, p_bar):
-        stats = self.model.validate_step(minibatch)
-        self.tensor_2_item(stats)
-        self._log_validation_step(epoch, batch_idx, stats)
-        p_bar.set_postfix_str("loss: {:4.8g}".format(stats['loss']))
-        p_bar.update()
-        return stats
-
     def train(self):
         e_bar = tqdm.tqdm(
             desc='Epoch: ',
@@ -86,7 +69,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
             train_log = self._train_epoch(epoch)
             validate_log = self._validate_epoch(epoch)
 
-            self.__update_p_bar(e_bar, train_log, validate_log)
+            self._update_p_bar(e_bar, train_log, validate_log)
             self._check_and_save_best_model(train_log, validate_log)
             if epoch % self.save_after_epoch == 0:
                 self._save_check_point(epoch)
@@ -110,6 +93,15 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
 
         return epoch_stats
 
+    def _train_step(self, minibatch: Any, batch_idx: int, epoch: int, p_bar):
+        stats = self.model.train_step(minibatch, self.optimizer, self.global_step, scheduler=self.schedulers)
+        self.tensor_2_item(stats)
+        self._log_train_step(epoch, batch_idx, stats)
+        p_bar.set_postfix_str("loss: {:4.8g}".format(stats['loss']))
+        p_bar.update()
+        self.globa_step += 1
+        return stats
+
     def _validate_epoch(self, epoch: int) -> Dict:
         self.model.eval()
         with torch.no_grad():
@@ -128,6 +120,14 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
             self._log_epoch('validate/epoch/', epoch_stats)
 
         return epoch_stats
+
+    def _validate_step(self, minibatch: Any, batch_idx: int, epoch: int, p_bar):
+        stats = self.model.validate_step(minibatch)
+        self.tensor_2_item(stats)
+        self._log_validation_step(epoch, batch_idx, stats)
+        p_bar.set_postfix_str("loss: {:4.8g}".format(stats['loss']))
+        p_bar.update()
+        return stats
 
     @staticmethod
     def _update_stats(epoch_stat, batch_stat):
@@ -169,12 +169,12 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         os.makedirs(self.checkpoint_dir, exist_ok=True)
         os.makedirs(self.tensorboard_dir, exist_ok=True)
 
-    def __save_params(self):
+    def _save_params(self):
         params_path = os.path.join(self.logging_dir, 'config.yaml')
         self.logger.info(f'saving config into {params_path}')
         yaml.dump(self.params, open(params_path, 'w'), default_flow_style=False)
 
-    def __save_model(self, file_name, **kwargs) -> None:
+    def _save_model(self, file_name, **kwargs) -> None:
         model_type = type(self.model).__name__
         state = {
             'model_type': model_type,
@@ -207,13 +207,13 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         file_name = os.path.join(self.checkpoint_dir,
                                  'checkpoint-epoch{}.pth'.format(epoch))
         self.t_logger.info('Saving checkpoint: {} ...'.format(file_name))
-        self.__save_model(file_name, epoch=epoch)
+        self._save_model(file_name, epoch=epoch)
 
     def _save_best_model(self) -> None:
         file_name = os.path.join(self.checkpoint_dir,
                                  'best_model.pth')
         self.t_logger.info('Saving best model ...')
-        self.__save_model(file_name)
+        self._save_model(file_name)
 
     def _resume_check_point(self, path: str) -> None:
         """
@@ -253,7 +253,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
 
     def _log_train_step(self, epoch: int, batch_idx: int, stats: Dict) -> None:
         data_len = len(self.data_loader.train.dataset)
-        log = self.__build_raw_log_str('Train epoch', batch_idx, epoch, stats, data_len, self.batch_size)
+        log = self._build_raw_log_str('Train epoch', batch_idx, epoch, stats, data_len, self.batch_size)
         self.t_logger.info(log)
         for k, v in stats.items():
             if is_primitive(v):
@@ -261,14 +261,14 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
 
     def _log_validation_step(self, epoch: int, batch_idx: int, logs: Dict) -> None:
         data_len = len(self.data_loader.validate.dataset)
-        log = self.__build_raw_log_str('Validation epoch', batch_idx, epoch, logs, data_len, self.batch_size)
+        log = self._build_raw_log_str('Validation epoch', batch_idx, epoch, logs, data_len, self.batch_size)
         self.t_logger.info(log)
         for k, v in logs.items():
             if is_primitive(v):
                 self.summary.add_scalar('validate/batch/' + k, v, self.global_step)
 
     @staticmethod
-    def __build_raw_log_str(prefix: str, batch_idx: int, epoch: int, logs: Dict, data_len: int, batch_size: int):
+    def _build_raw_log_str(prefix: str, batch_idx: int, epoch: int, logs: Dict, data_len: int, batch_size: int):
         sb = prefix + ': {} [{}/{} ({:.0%})]'.format(
             epoch,
             batch_idx * batch_size,
@@ -282,16 +282,16 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
     def _check_and_save_best_model(self, train_log: Dict, validate_log: Dict) -> None:
         if validate_log[self.bm_metric] < self.best_model['val_metric']:
             self._save_best_model()
-            self.__update_best_model_flag(train_log, validate_log)
+            self._update_best_model_flag(train_log, validate_log)
 
-    def __update_p_bar(self, e_bar, train_log: Dict, validate_log: Dict) -> None:
+    def _update_p_bar(self, e_bar, train_log: Dict, validate_log: Dict) -> None:
         e_bar.update()
         e_bar.set_postfix_str(
             f"train loss: {train_log['loss']:6.6g} train {self.bm_metric}: {train_log[self.bm_metric]:6.6g}, "
             f"validation loss: {validate_log['loss']:6.6g}, validation {self.bm_metric}: "
             f"{validate_log[self.bm_metric]:6.4g}")
 
-    def __update_best_model_flag(self, train_log: Dict, validate_log: Dict) -> None:
+    def _update_best_model_flag(self, train_log: Dict, validate_log: Dict) -> None:
         self.best_model['train_loss'] = train_log['loss']
         self.best_model['val_loss'] = validate_log['loss']
         self.best_model['train_metric'] = train_log[self.bm_metric]
