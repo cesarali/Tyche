@@ -45,8 +45,13 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
             self.schedulers = None
 
         self.data_loader = data_loader
-        self.n_train_batches = len(data_loader.train)
-        self.n_val_batches = len(data_loader.validate)
+        try:
+            self.n_train_batches = len(data_loader.train)
+            self.n_val_batches = len(data_loader.validate)
+        except:
+            print("Number of train batches undefined, working with one ")
+            self.n_train_batches = 1
+            self.n_val_batches = 1.
 
         self.global_step = 0
         self.best_model = {'train_loss': float('inf'),
@@ -99,7 +104,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         self._log_train_step(epoch, batch_idx, stats)
         p_bar.set_postfix_str("loss: {:4.8g}".format(stats['loss']))
         p_bar.update()
-        self.globa_step += 1
+        self.global_step += 1
         return stats
 
     def _validate_epoch(self, epoch: int) -> Dict:
