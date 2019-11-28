@@ -257,11 +257,11 @@ def gumbel_sample(shape, device, epsilon=1e-20):
     return -torch.log(-torch.log(u + epsilon) + epsilon)
 
 
-def gumbel_softmax_sample(pi, tau, device):
+def gumbel_softmax_sample(pi, tau, device, epsilon=1e-12):
     """
     Sample Gumbel-softmax
     """
-    y = torch.log(pi) + gumbel_sample(pi.size(), device)
+    y = torch.log(pi + epsilon) + gumbel_sample(pi.size(), device)
     return torch.nn.functional.softmax(y / tau, dim=-1)
 
 
