@@ -126,6 +126,25 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
 
         return epoch_stats
 
+    def _test_epoch(self, epoch: int) -> Dict:
+        self.model.eval()
+        with torch.no_grad():
+            p_bar = tqdm.tqdm(
+                desc="Test batch: ",
+                total=len(self.data_loader.test),
+                unit="batch")
+
+            epoch_stats = None
+            for batch_idx, data in enumerate(self.data_loader.test):
+                batch_stat = self._validate_step(data, batch_idx, epoch, p_bar)
+                epoch_stats = self._update_stats(epoch_stats, batch_stat)
+            p_bar.close()
+
+            self._normalize_stats(self.n_val_batches, epoch_stats)
+            self._log_epoch('validate/epoch/', epoch_stats)
+
+        return epoch_stats
+
     def _validate_step(self, minibatch: Any, batch_idx: int, epoch: int, p_bar):
         stats = self.model.validate_step(minibatch)
         self.tensor_2_item(stats)
