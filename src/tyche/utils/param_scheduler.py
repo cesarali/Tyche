@@ -25,9 +25,14 @@ class ExponentialSchedulerGumbel(object):
 class LinearScheduler(object):
     def __init__(self, **kwargs):
         self.max_steps = kwargs.get('max_steps', 1000)
+        self.start_value = kwargs.get('start_value', 0)
+        print("start_value linear scheduler {}".format(self.start_value))
 
     def __call__(self, step):
-        return min(1., float(step) / self.max_steps)
+        if self.start_value == 0:
+            return min(1., float(step) / self.max_steps)
+        else:
+            return min(1., self.start_value + float(step) / self.max_steps * (1 - self.start_value))
 
 
 class ConstantScheduler(object):

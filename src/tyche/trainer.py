@@ -46,8 +46,13 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
             self.schedulers = None
 
         self.data_loader = data_loader
-        self.n_train_batches = len(data_loader.train)
-        self.n_val_batches = len(data_loader.validate)
+        try:
+            self.n_train_batches = len(data_loader.train)
+            self.n_val_batches = len(data_loader.validate)
+        except:
+            print("Number of train batches undefined, working with one ")
+            self.n_train_batches = 1
+            self.n_val_batches = 1.
 
         self.global_step = 0
         self.best_model = {'train_loss': float('inf'),
@@ -126,8 +131,31 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
 
         return epoch_stats
 
+    def _test_epoch(self, epoch: int) -> Dict:
+        self.model.eval()
+        with torch.no_grad():
+            p_bar = tqdm.tqdm(
+                desc="Test batch: ",
+                total=len(self.data_loader.test),
+                unit="batch")
+
+            epoch_stats = None
+            for batch_idx, data in enumerate(self.data_loader.test):
+                batch_stat = self._validate_step(data, batch_idx, epoch, p_bar)
+                epoch_stats = self._update_stats(epoch_stats, batch_stat)
+            p_bar.close()
+
+            self._normalize_stats(self.n_val_batches, epoch_stats)
+            self._log_epoch('validate/epoch/', epoch_stats)
+
+        return epoch_stats
+
     def _validate_step(self, minibatch: Any, batch_idx: int, epoch: int, p_bar):
-        stats = self.model.validate_step(minibatch)
+        if type(self.model).__name__ == "WAE":
+            stats = self.model.validate_step(minibatch, scheduler=self.schedulers)
+        else:
+            stats = self.model.validate_step(minibatch)
+
         self.tensor_2_item(stats)
         self._log_validation_step(epoch, batch_idx, stats)
         p_bar.set_postfix_str("loss: {:4.8g}".format(stats['loss']))

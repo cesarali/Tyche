@@ -63,7 +63,7 @@ class DataLoaderPTB(ADataLoader):
 
         self._train_iter, self._valid_iter, self._test_iter = BucketIterator.splits(
             (train, valid, test),
-            batch_sizes=(batch_size, batch_size, len(test)),
+            batch_sizes=(batch_size, batch_size, batch_size),
             sort_key=lambda x: len(x.text),
             sort_within_batch=True,
             repeat=False,
