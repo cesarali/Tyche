@@ -1,4 +1,5 @@
 import datetime
+import matplotlib
 import json
 import logging
 import os
@@ -99,7 +100,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         self._log_train_step(epoch, batch_idx, stats)
         p_bar.set_postfix_str("loss: {:4.8g}".format(stats['loss']))
         p_bar.update()
-        self.globa_step += 1
+        self.global_step += 1
         return stats
 
     def _validate_epoch(self, epoch: int) -> Dict:
@@ -115,6 +116,10 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
                 batch_stat = self._validate_step(data, batch_idx, epoch, p_bar)
                 epoch_stats = self._update_stats(epoch_stats, batch_stat)
             p_bar.close()
+
+            if epoch % self.save_after_epoch == 0:
+                final_stats = self.model.validate_epoch(self.data_loader,epoch)
+                epoch_stats.update(final_stats)
 
             self._normalize_stats(self.n_val_batches, epoch_stats)
             self._log_epoch('validate/epoch/', epoch_stats)
@@ -151,6 +156,8 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
                 self.summary.add_scalar(log_label + k, v, self.global_step)
             elif isinstance(v, list) and isinstance(v[0], int):
                 self.summary.add_histogram(log_label + k, v, self.global_step)
+            elif isinstance(v,matplotlib.figure.Figure):
+                self.summary.add_figure(log_label + k, figure=v, global_step=self.global_step)
 
     def __del__(self):
         self.summary.close()
