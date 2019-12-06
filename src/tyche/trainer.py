@@ -259,7 +259,10 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
 
         """
         self.logger.info('Loading checkpoint: {} ...'.format(path))
-        state = torch.load(path)
+        if torch.cuda.is_available() is False:
+            state = torch.load(path, map_location='cpu')
+        else:
+            state = torch.load(path)
         self.params = state['params']
         if state['epoch'] is None:
             self.start_epoch = 1
