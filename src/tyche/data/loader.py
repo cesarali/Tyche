@@ -6,6 +6,13 @@ from torchtext.data.iterator import BucketIterator
 from tyche import data
 from tyche.data import datasets
 
+import torch
+from torchtext.datasets import text_classification
+import os
+
+from torch.utils.data import DataLoader
+from torch.utils.data.dataset import random_split
+
 spacy_en = spacy.load('en')
 
 
@@ -195,6 +202,64 @@ class DataLoaderWiki103(ADataLoader):
 
         self._train_iter, self._valid_iter, self._test_iter = BucketIterator.splits(
             (train, valid, test),
+            batch_sizes=(batch_size, batch_size, len(test)),
+            sort_key=lambda x: len(x.text),
+            sort_within_batch=True,
+            repeat=False,
+            device=device
+        )
+
+        TEXT.build_vocab(train, vectors=emb_dim, vectors_cache=path_to_vectors, max_size=voc_size,
+                         min_freq=min_freq)
+        self.train_vocab = TEXT.vocab
+        self.fix_length = TEXT.fix_length
+
+    @property
+    def train(self):
+        return self._train_iter
+
+    @property
+    def test(self):
+        return self._test_iter
+
+    @property
+    def validate(self):
+        return self._valid_iter
+
+    @property
+    def vocab(self):
+        return self.train_vocab
+
+    @property
+    def fix_len(self):
+        return self.fix_length
+
+
+class DataLoaderYelp(ADataLoader):
+    def __init__(self, device, **kwargs):
+        batch_size = kwargs.get('batch_size', 32)
+        path_to_data = kwargs.pop('path_to_data', "./data")
+        path_to_vectors = kwargs.pop('path_to_vectors', "./data")
+        emb_dim = kwargs.pop('emb_dim', "glove.6B.300d")
+        voc_size = kwargs.pop('voc_size', 10000)
+        min_freq = kwargs.pop('min_freq', 1)
+        fix_len = kwargs.pop('fix_len', 30)
+        min_len = kwargs.pop('min_len', 3)
+        max_len = kwargs.pop('max_len', None)
+
+
+        # Defining fields
+        TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>',
+                                    tokenize=None,
+                                    include_lengths=True, fix_length=fix_len, batch_first=True)
+        train, test = datasets.YelpReviewFull.splits(TEXT, root=path_to_data)
+
+
+        if fix_len == -1:
+            TEXT.fix_length = max([train.max_len, test.max_len])
+
+        self._train_iter, self._test_iter = BucketIterator.splits(
+            (train, test),
             batch_sizes=(batch_size, batch_size, len(test)),
             sort_key=lambda x: len(x.text),
             sort_within_batch=True,
