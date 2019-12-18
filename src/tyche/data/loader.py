@@ -1,27 +1,21 @@
-from abc import ABC
-
+import pickle as pickle
 import spacy
-from torchtext.data.iterator import BucketIterator
-
-from tyche import data
-from tyche.data import datasets
-
 import torch
-from torchtext.datasets import text_classification
-from torchtext.utils import download_from_url, extract_archive
-from tqdm import tqdm
-from torchtext.vocab import Vocab
+import torch.nn.functional as F
+from abc import ABC
 from collections import Counter
-
 from torch.utils.data import DataLoader
 from torch.utils.data.dataset import random_split
-import torch.nn.functional as F
-
+from torchtext.data.iterator import BucketIterator
+from torchtext.datasets import text_classification
+from torchtext.utils import download_from_url, extract_archive
+from torchtext.vocab import Vocab
+from tqdm import tqdm
+from tyche import data
+from tyche.data import datasets
 from unittest.mock import Mock
 
-import pickle as pickle
-
-spacy_en = spacy.load('en')
+spacy_en = spacy.load('en_core_web_sm')
 
 
 def tokenizer(x):
@@ -77,12 +71,12 @@ class DataLoaderPTB(ADataLoader):
             TEXT.fix_length = max([train.max_len, valid.max_len, test.max_len])
 
         self._train_iter, self._valid_iter, self._test_iter = BucketIterator.splits(
-            (train, valid, test),
-            batch_sizes=(batch_size, batch_size, batch_size),
-            sort_key=lambda x: len(x.text),
-            sort_within_batch=True,
-            repeat=False,
-            device=device
+                (train, valid, test),
+                batch_sizes=(batch_size, batch_size, batch_size),
+                sort_key=lambda x: len(x.text),
+                sort_within_batch=True,
+                repeat=False,
+                device=device
         )
 
         TEXT.build_vocab(train, vectors=emb_dim, vectors_cache=path_to_vectors,
@@ -149,12 +143,12 @@ class DataLoaderWiki2(ADataLoader):
             TEXT.fix_length = max([train.max_len, valid.max_len, test.max_len])
 
         self._train_iter, self._valid_iter, self._test_iter = BucketIterator.splits(
-            (train, valid, test),
-            batch_sizes=(batch_size, batch_size, len(test)),
-            sort_key=lambda x: len(x.text),
-            sort_within_batch=True,
-            repeat=False,
-            device=device
+                (train, valid, test),
+                batch_sizes=(batch_size, batch_size, len(test)),
+                sort_key=lambda x: len(x.text),
+                sort_within_batch=True,
+                repeat=False,
+                device=device
 
         )
 
@@ -209,12 +203,12 @@ class DataLoaderWiki103(ADataLoader):
             TEXT.fix_length = max([train.max_len, valid.max_len, test.max_len])
 
         self._train_iter, self._valid_iter, self._test_iter = BucketIterator.splits(
-            (train, valid, test),
-            batch_sizes=(batch_size, batch_size, len(test)),
-            sort_key=lambda x: len(x.text),
-            sort_within_batch=True,
-            repeat=False,
-            device=device
+                (train, valid, test),
+                batch_sizes=(batch_size, batch_size, len(test)),
+                sort_key=lambda x: len(x.text),
+                sort_within_batch=True,
+                repeat=False,
+                device=device
         )
 
         TEXT.build_vocab(train, vectors=emb_dim, vectors_cache=path_to_vectors, max_size=voc_size,
@@ -241,6 +235,7 @@ class DataLoaderWiki103(ADataLoader):
     @property
     def fix_len(self):
         return self.fix_length
+
 
 URLS = {
     'AG_NEWS':
@@ -290,7 +285,9 @@ class DataLoaderYelp(ADataLoader):
             print("loading pickle sample split done")
 
         else:
-            self.train_dataset, self.test_dataset = self._setup_datasets("yelp_review_full_csv", self.path_to_data, self.ngrams, vocab=None, include_unk=True, download=self.download)
+            self.train_dataset, self.test_dataset = self._setup_datasets("yelp_review_full_csv", self.path_to_data,
+                                                                         self.ngrams, vocab=None, include_unk=True,
+                                                                         download=self.download)
 
             print("sample {} train data and {} valid data".format(self.train_sample, self.valid_sample))
             # sample 100k train, 10k valid, 10k test
@@ -325,9 +322,7 @@ class DataLoaderYelp(ADataLoader):
                                       collate_fn=self.generate_batch, )
 
         self._valid_iter = DataLoader(sub_valid_, batch_size=self.batch_size, shuffle=True,
-                                     collate_fn=self.generate_batch)
-
-
+                                      collate_fn=self.generate_batch)
 
     def _setup_datasets(self, dataset_name, root='./data', ngrams=1, vocab=None, include_unk=True, download=False):
         if download:
@@ -354,10 +349,10 @@ class DataLoaderYelp(ADataLoader):
         print('Vocab has {} entries'.format(len(vocab)))
         print('Creating training data')
         train_data, train_labels = text_classification._create_data_from_iterator(
-            vocab, text_classification._csv_iterator(train_csv_path, ngrams, yield_cls=True), include_unk)
+                vocab, text_classification._csv_iterator(train_csv_path, ngrams, yield_cls=True), include_unk)
         print('Creating testing data')
         test_data, test_labels = text_classification._create_data_from_iterator(
-            vocab, text_classification._csv_iterator(test_csv_path, ngrams, yield_cls=True), include_unk)
+                vocab, text_classification._csv_iterator(test_csv_path, ngrams, yield_cls=True), include_unk)
         if len(train_labels ^ test_labels) > 0:
             raise ValueError("Training and test labels don't match")
         return (text_classification.TextClassificationDataset(vocab, train_data, train_labels),
@@ -376,7 +371,8 @@ class DataLoaderYelp(ADataLoader):
             for tokens in iterator:
                 counter.update(tokens)
                 t.update(1)
-        word_vocab = Vocab(counter=counter, max_size=self.voc_size, min_freq=self.min_freq, specials=['<unk>', '<pad>', '<sos>', '<eos>'],
+        word_vocab = Vocab(counter=counter, max_size=self.voc_size, min_freq=self.min_freq,
+                           specials=['<unk>', '<pad>', '<sos>', '<eos>'],
                            vectors=self.emb_dim, vectors_cache=self.path_to_vectors, specials_first=True)
         return word_vocab
 
@@ -464,7 +460,9 @@ class DataLoaderYahoo(ADataLoader):
             print("loading pickle sample split done")
 
         else:
-            self.train_dataset, self.test_dataset = self._setup_datasets("yahoo_answers_csv", self.path_to_data, self.ngrams, vocab=None, include_unk=True, download=self.download)
+            self.train_dataset, self.test_dataset = self._setup_datasets("yahoo_answers_csv", self.path_to_data,
+                                                                         self.ngrams, vocab=None, include_unk=True,
+                                                                         download=self.download)
 
             print("sample {} train data and {} valid data".format(self.train_sample, self.valid_sample))
             # sample 100k train, 10k valid, 10k test
@@ -499,9 +497,7 @@ class DataLoaderYahoo(ADataLoader):
                                       collate_fn=self.generate_batch, )
 
         self._valid_iter = DataLoader(sub_valid_, batch_size=self.batch_size, shuffle=True,
-                                     collate_fn=self.generate_batch)
-
-
+                                      collate_fn=self.generate_batch)
 
     def _setup_datasets(self, dataset_name, root='./data', ngrams=1, vocab=None, include_unk=True, download=False):
         if download:
@@ -528,10 +524,10 @@ class DataLoaderYahoo(ADataLoader):
         print('Vocab has {} entries'.format(len(vocab)))
         print('Creating training data')
         train_data, train_labels = text_classification._create_data_from_iterator(
-            vocab, text_classification._csv_iterator(train_csv_path, ngrams, yield_cls=True), include_unk)
+                vocab, text_classification._csv_iterator(train_csv_path, ngrams, yield_cls=True), include_unk)
         print('Creating testing data')
         test_data, test_labels = text_classification._create_data_from_iterator(
-            vocab, text_classification._csv_iterator(test_csv_path, ngrams, yield_cls=True), include_unk)
+                vocab, text_classification._csv_iterator(test_csv_path, ngrams, yield_cls=True), include_unk)
         if len(train_labels ^ test_labels) > 0:
             raise ValueError("Training and test labels don't match")
         return (text_classification.TextClassificationDataset(vocab, train_data, train_labels),
@@ -550,7 +546,8 @@ class DataLoaderYahoo(ADataLoader):
             for tokens in iterator:
                 counter.update(tokens)
                 t.update(1)
-        word_vocab = Vocab(counter=counter, max_size=self.voc_size, min_freq=self.min_freq, specials=['<unk>', '<pad>', '<sos>', '<eos>'],
+        word_vocab = Vocab(counter=counter, max_size=self.voc_size, min_freq=self.min_freq,
+                           specials=['<unk>', '<pad>', '<sos>', '<eos>'],
                            vectors=self.emb_dim, vectors_cache=self.path_to_vectors, specials_first=True)
         return word_vocab
 

@@ -5,12 +5,12 @@ from __future__ import print_function, unicode_literals
 
 import copy
 import itertools
-from importlib import import_module
-
 import numpy as np
 import torch as to
 import torch as torch
 import yaml
+from functools import reduce
+from importlib import import_module
 from scipy import linalg as la
 
 
@@ -96,7 +96,8 @@ def load_params(path):
         with open(path, "rb") as f:
             params = yaml.full_load(f)
         return params
-    except:
+    except Exception as e:
+        print(e)
         with open(path, "r") as f:
             params = yaml.full_load(f, encoding='utf-8')
         return params
@@ -283,6 +284,9 @@ def gumbel_softmax(pi, tau, device):
 
 
 def is_primitive(v):
+    """
+    Checks if v is of primitive type.
+    """
     return isinstance(v, (int, float, bool, str))
 
 
@@ -294,3 +298,24 @@ def free_params(module):
 def frozen_params(module):
     for p in module.parameters():
         p.requires_grad = False
+
+
+def sum_dictionares(dicts: dict):
+    """
+    Sums the values of the common keys in dictionary.
+
+    Parameters
+    ----------
+    dicts (list) dictionaries containing numeric values
+
+    Returns
+    -------
+    dictionary with summed values
+    """
+
+    def reducer(accumulator, element):
+        for key, value in element.items():
+            accumulator[key] = accumulator.get(key, 0) + value
+        return accumulator
+
+    return reduce(reducer, dicts, {})
