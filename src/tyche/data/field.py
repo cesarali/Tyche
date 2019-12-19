@@ -338,7 +338,7 @@ class NestedBPTTField(BPTTField):
 class ReversibleField(Field):
     def __init__(self, **kwargs):
         if 'unk_token' not in kwargs:
-            kwargs['unk_token'] = '</unk>'
+            kwargs['unk_token'] = '<unk>'
         super(ReversibleField, self).__init__(**kwargs)
 
     def reverse(self, batch):
