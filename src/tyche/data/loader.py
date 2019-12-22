@@ -605,3 +605,153 @@ class DataLoaderYahoo(ADataLoader):
     @property
     def fix_len(self):
         return self.fix_length
+
+
+class DataLoaderYelp15(ADataLoader):
+    """
+    @article{yang2017improved,
+    title={Improved Variational Autoencoders for Text Modeling using Dilated
+    Convolutions},
+    author={Yang, Zichao and Hu, Zhiting and Salakhutdinov, Ruslan and
+    Berg-Kirkpatrick, Taylor},
+    journal={arXiv preprint arXiv:1702.08139},
+    year={2017}
+    }
+    """
+    def __init__(self, device, **kwargs):
+        self.device = device
+        self.batch_size = kwargs.get('batch_size')
+        self.path_to_data = kwargs.pop('path_to_data')
+        self.path_to_vectors = kwargs.pop('path_to_vectors')
+        self.emb_dim = kwargs.pop('emb_dim')
+        self.voc_size = kwargs.pop('voc_size')
+        self.min_freq = kwargs.pop('min_freq', 1)
+        self.fix_length = kwargs.pop('fix_len', 203)
+
+        self.path_train_data = self.path_to_data + '/yelp_15/yelp.train.txt'
+        self.path_val_data = self.path_to_data + '/yelp_15/yelp.valid.txt'
+        self.path_test_data = self.path_to_data + '/yelp_15/yelp.test.txt'
+
+        print("build vocab")
+        vocab = self.build_vocab_from_textfile(self.path_train_data)
+
+        print("create train split")
+        list_train_data, list_train_labels = self.create_data_from_textfile(vocab, self.path_train_data, include_unk=True)
+        train = text_classification.TextClassificationDataset(vocab, list_train_data, list_train_labels)
+
+        print("create val split")
+        list_val_data, list_val_labels = self.create_data_from_textfile(vocab, self.path_val_data, include_unk=True)
+        valid = text_classification.TextClassificationDataset(vocab, list_val_data, list_val_labels)
+
+        print("create test split")
+        list_test_data, list_test_labels = self.create_data_from_textfile(vocab, self.path_test_data, include_unk=True)
+        test = text_classification.TextClassificationDataset(vocab, list_test_data, list_test_labels)
+
+        print("create data loaders")
+        self._train_iter = DataLoader(train, batch_size=self.batch_size, shuffle=True,
+                                      collate_fn=self.generate_batch, )
+
+        self._valid_iter = DataLoader(valid, batch_size=self.batch_size, shuffle=True,
+                                      collate_fn=self.generate_batch)
+
+        self._test_iter = DataLoader(test, batch_size=self.batch_size, shuffle=True,
+                                     collate_fn=self.generate_batch)
+
+        self.train_vocab = vocab
+
+    def build_vocab_from_textfile(self, fname):
+        """
+        read in frequencies from text file and build new vocab
+        """
+        counter = Counter()
+        with open(fname) as fin:
+            for line in fin:
+                split_line = line.split('\t')
+                split_line = split_line[1].split()
+                counter.update(split_line)
+
+        word_vocab = Vocab(counter=counter, max_size=self.voc_size, min_freq=self.min_freq,
+                           specials=['<unk>', '<pad>', '<sos>', '<eos>'],
+                           vectors=self.emb_dim, vectors_cache=self.path_to_vectors, specials_first=True)
+        print("vocab len: {}".format(len(word_vocab)))
+
+        return word_vocab
+
+    def create_data_from_textfile(self, vocab, filename, include_unk):
+        """
+        replaces tokens from file with ids from vocab
+        return data, labels
+        """
+        data = []
+        labels = []
+        with open(filename) as fin:
+            for line in fin:
+                split_line = line.split('\t')
+                cls = int(split_line[0])
+                split_line = split_line[1].split()
+                if include_unk:
+                    tokens = torch.tensor([vocab[token] for token in split_line])
+                else:
+                    token_ids = list(filter(lambda x: x is not Vocab.UNK, [vocab[token]
+                                                                           for token in tokens]))
+                    tokens = torch.tensor(token_ids)
+                if len(tokens) == 0:
+                    print('Row contains no tokens.')
+                data.append((cls, tokens))
+                labels.append(cls)
+        return data, set(labels)
+
+    def generate_batch(self, batch):
+        """
+        help function for data loader
+        adds special tokens to each sentence and stores data as tensors in minibatch
+        """
+
+        sos = self.train_vocab.stoi["<sos>"]
+        eos = self.train_vocab.stoi["<eos>"]
+        pad = self.train_vocab.stoi["<pad>"]
+        text = [self.add_padding(entry[1], sos, eos, pad) for entry in batch]
+        label = torch.tensor([entry[0] for entry in batch])
+        seq_len = [torch.tensor(len(entry)) for entry in text]
+        text = torch.stack(text)
+        seq_len = torch.stack(seq_len)
+        text, seq_len, label = text.to(self.device), seq_len.to(self.device), label.to(self.device)
+        minibatch = Mock()
+        minibatch.text = (text, seq_len)
+        minibatch.label = label
+
+        return minibatch
+
+    def add_padding(self, text_entry, sos, eos, pad):
+        """adds padding to create same length sequences"""
+
+        pad_start = (1, 0)
+        pad_end = (0, 1)
+        text_entry = F.pad(text_entry, pad_start, value=sos)
+        text_entry = F.pad(text_entry, pad_end, value=eos)
+        difference = self.fix_length - len(text_entry)
+        if difference > 0:
+            pad_length = (0, difference)
+            text_entry = F.pad(text_entry, pad_length, value=pad)
+
+        return text_entry
+
+    @property
+    def train(self):
+        return self._train_iter
+
+    @property
+    def test(self):
+        return self._test_iter
+
+    @property
+    def validate(self):
+        return self._valid_iter
+
+    @property
+    def vocab(self):
+        return self.train_vocab
+
+    @property
+    def fix_len(self):
+        return self.fix_length
