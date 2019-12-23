@@ -257,6 +257,60 @@ URLS = {
 }
 
 
+class DataLoaderYelp2019(ADataLoader):
+    def __init__(self, device, dtype=torch.float32, **kwargs):
+        batch_size = kwargs.pop('batch_size')
+        text_fix_len = kwargs.pop('text_fix_len', None)
+        emb_dim = kwargs.pop('emb_dim')
+        voc_size = kwargs.pop('voc_size', None)
+        path_to_vectors = kwargs.pop('path_to_vectors')
+        min_freq = kwargs.pop('min_freq')
+        server = kwargs.pop('server', 'localhost')
+        data_collection_name = kwargs.pop('data_collection')
+        db_name = kwargs.pop('db')
+        train_col = f'{data_collection_name}_train'
+        val_col = f'{data_collection_name}_validation'
+        test_col = f'{data_collection_name}_test'
+
+        FIELD_TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>', unk_token='<unk>',
+                                          tokenize=tokenizer, batch_first=True, use_vocab=True, fix_length=text_fix_len,
+                                          include_lengths=True)
+
+        train, valid, test = datasets.Yelp2019.splits(server, db_name, text_field=FIELD_TEXT, train=train_col,
+                                                      validation=val_col, test=test_col,
+                                                      **kwargs)
+        if text_fix_len == -1:
+            TEXT.fix_length = max([train.max_len, valid.max_len, test.max_len])
+
+        self._train_iter, self._valid_iter, self._test_iter = BucketIterator.splits(
+                (train, valid, test), batch_sizes=(batch_size, batch_size, len(test)),
+                sort_key=lambda x: len(x.text), sort_within_batch=True, repeat=False, device=device)
+        FIELD_TEXT.build_vocab(train, vectors=emb_dim, vectors_cache=path_to_vectors, max_size=voc_size,
+                               min_freq=min_freq)
+        self.train_vocab = FIELD_TEXT.vocab
+        self._text_fix_length = FIELD_TEXT.fix_length
+
+    @property
+    def train(self):
+        return self._train_iter
+
+    @property
+    def test(self):
+        return self._test_iter
+
+    @property
+    def validate(self):
+        return self._valid_iter
+
+    @property
+    def fix_len(self):
+        return self._text_fix_length
+
+    @property
+    def vocab(self):
+        return self.train_vocab
+
+
 class DataLoaderYelp(ADataLoader):
     def __init__(self, device, **kwargs):
         self.device = device
@@ -618,6 +672,7 @@ class DataLoaderYelp15(ADataLoader):
     year={2017}
     }
     """
+
     def __init__(self, device, **kwargs):
         self.device = device
         self.batch_size = kwargs.get('batch_size')
@@ -636,7 +691,8 @@ class DataLoaderYelp15(ADataLoader):
         vocab = self.build_vocab_from_textfile(self.path_train_data)
 
         print("create train split")
-        list_train_data, list_train_labels = self.create_data_from_textfile(vocab, self.path_train_data, include_unk=True)
+        list_train_data, list_train_labels = self.create_data_from_textfile(vocab, self.path_train_data,
+                                                                            include_unk=True)
         train = text_classification.TextClassificationDataset(vocab, list_train_data, list_train_labels)
 
         print("create val split")
