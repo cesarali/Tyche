@@ -1,16 +1,15 @@
 import datetime
-import matplotlib
 import json
 import logging
+import matplotlib
 import os
-from abc import ABCMeta
-from typing import Any
-from typing import Dict
-
 import torch
 import tqdm
 import yaml
+from abc import ABCMeta
 from tensorboardX import SummaryWriter
+from typing import Any
+from typing import Dict
 
 from .utils.helper import get_device, is_primitive, create_instance
 
@@ -66,11 +65,11 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
 
     def train(self):
         e_bar = tqdm.tqdm(
-            desc='Epoch: ',
-            total=self.n_epochs,
-            unit='epoch',
-            initial=self.start_epoch,
-            postfix='train loss: -, validation loss: -')
+                desc='Epoch: ',
+                total=self.n_epochs,
+                unit='epoch',
+                initial=self.start_epoch,
+                postfix='train loss: -, validation loss: -')
         for epoch in range(self.start_epoch, self.n_epochs):
             train_log = self._train_epoch(epoch)
             validate_log = self._validate_epoch(epoch)
@@ -86,7 +85,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
     def _train_epoch(self, epoch: int) -> Dict:
         self.model.train()
         p_bar = tqdm.tqdm(
-            desc='Training batch: ', total=self.n_train_batches, unit='batch')
+                desc='Training batch: ', total=self.n_train_batches, unit='batch')
 
         epoch_stats = None
         for batch_idx, data in enumerate(self.data_loader.train):
@@ -112,9 +111,9 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         self.model.eval()
         with torch.no_grad():
             p_bar = tqdm.tqdm(
-                desc="Validation batch: ",
-                total=self.n_val_batches,
-                unit="batch")
+                    desc="Validation batch: ",
+                    total=self.n_val_batches,
+                    unit="batch")
 
             epoch_stats = None
             for batch_idx, data in enumerate(self.data_loader.validate):
@@ -123,7 +122,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
             p_bar.close()
 
             if epoch % self.save_after_epoch == 0:
-                final_stats = self.model.validate_epoch(self.data_loader,epoch)
+                final_stats = self.model.validate_epoch(self.data_loader, epoch)
                 epoch_stats.update(final_stats)
 
             self._normalize_stats(self.n_val_batches, epoch_stats)
@@ -135,9 +134,9 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         self.model.eval()
         with torch.no_grad():
             p_bar = tqdm.tqdm(
-                desc="Test batch: ",
-                total=len(self.data_loader.test),
-                unit="batch")
+                    desc="Test batch: ",
+                    total=len(self.data_loader.test),
+                    unit="batch")
 
             epoch_stats = None
             for batch_idx, data in enumerate(self.data_loader.test):
@@ -184,7 +183,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
                 self.summary.add_scalar(log_label + k, v, self.global_step)
             elif isinstance(v, list) and isinstance(v[0], int):
                 self.summary.add_histogram(log_label + k, v, self.global_step)
-            elif isinstance(v,matplotlib.figure.Figure):
+            elif isinstance(v, matplotlib.figure.Figure):
                 self.summary.add_figure(log_label + k, figure=v, global_step=self.global_step)
 
     def __del__(self):
@@ -193,12 +192,15 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
     def _prepare_dirs(self) -> None:
         trainer_par = self.params['trainer']
         start_time = datetime.datetime.now().strftime('%d%m_%H%M%S')
+        name = self.params['name']
+        if len(name) > 200:
+            name = "_".join([i if i.isdigit() else i[0:3] for i in name.split('_')])
         self.checkpoint_dir = os.path.join(trainer_par['save_dir'],
-                                           self.params['name'], start_time)
+                                           name, start_time)
         self.logging_dir = os.path.join(trainer_par['logging']['logging_dir'],
-                                        self.params['name'], start_time)
+                                        name, start_time)
         self.tensorboard_dir = os.path.join(trainer_par['logging']['tensorboard_dir'],
-                                            self.params['name'], start_time)
+                                            name, start_time)
 
         os.makedirs(self.logging_dir, exist_ok=True)
         os.makedirs(self.checkpoint_dir, exist_ok=True)
@@ -281,7 +283,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         file_name = os.path.join(self.logging_dir, 'train.log')
         fh = logging.FileHandler(file_name)
         formatter = logging.Formatter(
-            self.params['trainer']['logging']['formatters']['simple'])
+                self.params['trainer']['logging']['formatters']['simple'])
         fh.setLevel(logging.INFO)
 
         fh.setFormatter(formatter)
@@ -308,10 +310,10 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
     @staticmethod
     def _build_raw_log_str(prefix: str, batch_idx: int, epoch: int, logs: Dict, data_len: int, batch_size: int):
         sb = prefix + ': {} [{}/{} ({:.0%})]'.format(
-            epoch,
-            batch_idx * batch_size,
-            data_len,
-            100.0 * batch_idx / data_len)
+                epoch,
+                batch_idx * batch_size,
+                data_len,
+                100.0 * batch_idx / data_len)
         for k, v in logs.items():
             if is_primitive(v):
                 sb += ' {}: {:.6f}'.format(k, v)
@@ -325,9 +327,9 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
     def _update_p_bar(self, e_bar, train_log: Dict, validate_log: Dict) -> None:
         e_bar.update()
         e_bar.set_postfix_str(
-            f"train loss: {train_log['loss']:6.6g} train {self.bm_metric}: {train_log[self.bm_metric]:6.6g}, "
-            f"validation loss: {validate_log['loss']:6.6g}, validation {self.bm_metric}: "
-            f"{validate_log[self.bm_metric]:6.4g}")
+                f"train loss: {train_log['loss']:6.6g} train {self.bm_metric}: {train_log[self.bm_metric]:6.6g}, "
+                f"validation loss: {validate_log['loss']:6.6g}, validation {self.bm_metric}: "
+                f"{validate_log[self.bm_metric]:6.4g}")
 
     def _update_best_model_flag(self, train_log: Dict, validate_log: Dict) -> None:
         self.best_model['train_loss'] = train_log['loss']
