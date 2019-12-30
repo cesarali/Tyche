@@ -139,9 +139,27 @@ def unpack_cv_parameters(params, prefix=None):
             else:
                 prefix = ".".join([prefix, key])
             param_pool = unpack_cv_parameters(value, prefix)
-            prefix = None
+            if '.' in prefix:
+                prefix = prefix.rsplit('.', 1)[0]
+            else:
+                prefix = None
+
             if len(param_pool) > 0:
                 cv_params.extend(param_pool)
+        elif isinstance(value, tuple) and isinstance(value[0], dict):
+            for ix, v in enumerate(value):
+                if isinstance(v, dict):
+                    if prefix is None:
+                        prefix = key
+                    else:
+                        prefix = ".".join([prefix, key + f"#{ix}"])
+                    param_pool = unpack_cv_parameters(v, prefix)
+                    if '.' in prefix:
+                        prefix = prefix.rsplit('.', 1)[0]
+                    else:
+                        prefix = None
+                    if len(param_pool) > 0:
+                        cv_params.extend(param_pool)
         elif isinstance(value, list):
             if prefix is None:
                 prefix = key
@@ -163,11 +181,19 @@ def dict_set_nested(d, keys, value):
             node[key] = value
             return d
         else:
-            if not key in node:
-                node[key] = dict()
-                node = node[key]
+            if "#" in key:
+                key, _id = key.split("#")
+                if not key in node:
+                    node[key] = dict()
+                    node = node[key][int(_id)]
+                else:
+                    node = node[key][int(_id)]
             else:
-                node = node[key]
+                if not key in node:
+                    node[key] = dict()
+                    node = node[key]
+                else:
+                    node = node[key]
 
 
 def expand_params(params):
