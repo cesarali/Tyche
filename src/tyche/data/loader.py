@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 from abc import ABC
 from collections import Counter
+from functools import partial
 from torch.utils.data import DataLoader
 from torch.utils.data.dataset import random_split
 from torchtext.data.iterator import BucketIterator
@@ -37,11 +38,14 @@ URLS = {
 }
 
 
-def tokenizer(x):
+def tokenizer(x, punct=True):
     """
     Create a tokenizer function
     """
-    return [tok.text for tok in spacy_en.tokenizer(x) if tok.text != ' ']
+    if punct:
+        return [token.orth_ for token in spacy_en.tokenizer(x) if not token.is_space]
+    else:
+        return [token.orth_ for token in spacy_en.tokenizer(x) if not token.is_punct | token.is_space]
 
 
 class ADataLoader(ABC):
@@ -56,6 +60,7 @@ class ADataLoader(ABC):
         self.min_len = kwargs.pop('min_len', None)
         self.max_len = kwargs.pop('max_len', None)
         self.lower = kwargs.pop('lower', False)
+        self.punctuation = kwargs.pop('punctuation', True)
         self.dataset_kwargs = kwargs
 
     @property
@@ -259,7 +264,8 @@ class DataLoaderYelp2019(ADataLoader):
         test_col = f'{data_collection_name}_test'
 
         FIELD_TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>', unk_token='<unk>',
-                                          tokenize=tokenizer, batch_first=True, use_vocab=True,
+                                          tokenize=partial(tokenizer, punct=self.punctuation), batch_first=True,
+                                          use_vocab=True,
                                           fix_length=self._fix_length,
                                           include_lengths=True, lower=self.lower)
 
