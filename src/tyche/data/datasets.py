@@ -239,8 +239,7 @@ class Yelp2019(data.Dataset):
         fields = {'text': ('text', text_field)}
         col = MongoClient(f'mongodb://{server}/')[db][collection]
         cursor_text = col.aggregate([{'$unwind': '$text'},
-                                     {'$project': {'text': 1, '_id': 0}}
-                                     ])
+                                     {'$project': {'text': 1, '_id': 0}}])
         examples = [make_example(i, fields) for i in cursor_text]
 
         if isinstance(fields, dict):
