@@ -1,3 +1,4 @@
+from pymongo import MongoClient
 from torchtext import data
 
 make_example = data.Example.fromdict
@@ -231,6 +232,34 @@ URLS = {
     'AmazonReviewFull':
         'https://drive.google.com/uc?export=download&id=0Bz8a_Dbh9QhbZVhsUnRWRDhETzA'
 }
+
+
+class Yelp2019(data.Dataset):
+    def __init__(self, server: str, db: str, collection: str, text_field, **kwargs):
+        fields = {'text': ('text', text_field)}
+        col = MongoClient(f'mongodb://{server}/')[db][collection]
+        cursor_text = col.aggregate([{'$unwind': '$text'},
+                                     {'$project': {'text': 1, '_id': 0}}
+                                     ])
+        examples = [make_example(i, fields) for i in cursor_text]
+
+        if isinstance(fields, dict):
+            fields, field_dict = [], fields
+            for field in field_dict.values():
+                if isinstance(field, list):
+                    fields.extend(field)
+                else:
+                    fields.append(field)
+
+        super(Yelp2019, self).__init__(examples, fields, **kwargs)
+        self.max_len = max([len(f.text) for f in self.examples])
+
+    @classmethod
+    def splits(cls, server: str, db: str, train=None, validation=None, test=None, **kwargs):
+        train_data = None if train is None else cls(server, db, train, **kwargs)
+        val_data = None if validation is None else cls(server, db, validation, **kwargs)
+        test_data = None if train is None else cls(server, db, test, **kwargs)
+        return tuple(d for d in (train_data, val_data, test_data) if d is not None)
 
 
 class YelpReviewFull(data.Dataset):
