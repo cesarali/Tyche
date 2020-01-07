@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 from abc import ABC
 from collections import Counter
+from functools import partial
 from torch.utils.data import DataLoader
 from torch.utils.data.dataset import random_split
 from torchtext.data.iterator import BucketIterator
@@ -16,227 +17,6 @@ from tyche.data import datasets
 from unittest.mock import Mock
 
 spacy_en = spacy.load('en_core_web_sm')
-
-
-def tokenizer(x):
-    """
-    Create a tokenizer function
-    """
-    x = x.replace("<unk>", "unk")
-    return [tok.text for tok in spacy_en.tokenizer(x) if tok.text != ' ']
-
-
-class ADataLoader(ABC):
-
-    @property
-    def train(self):
-        pass
-
-    @property
-    def validate(self):
-        pass
-
-    @property
-    def test(self):
-        pass
-
-
-class DataLoaderPTB(ADataLoader):
-    def __init__(self, device, **kwargs):
-        batch_size = kwargs.get('batch_size')
-        path_to_data = kwargs.pop('path_to_data')
-        path_to_vectors = kwargs.pop('path_to_vectors')
-        emb_dim = kwargs.pop('emb_dim')
-        voc_size = kwargs.pop('voc_size', None)
-        min_freq = kwargs.pop('min_freq', 1)
-        fix_len = kwargs.pop('fix_len', None)
-        min_len = kwargs.pop('min_len', None)
-        max_len = kwargs.pop('max_len', None)
-
-        # Defining fields
-        TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>', lower=True,
-                                    tokenize=tokenizer,
-                                    include_lengths=True, fix_length=fix_len, batch_first=True)
-        train, valid, test = datasets.PennTreebank.splits(TEXT, root=path_to_data)
-
-        if min_len is not None:
-            train.examples = [x for x in train.examples if len(x.text) >= min_len]
-            valid.examples = [x for x in valid.examples if len(x.text) >= min_len]
-            test.examples = [x for x in test.examples if len(x.text) >= min_len]
-        if max_len is not None:
-            train.examples = [x for x in train.examples if len(x.text) <= max_len]
-            valid.examples = [x for x in valid.examples if len(x.text) <= max_len]
-            test.examples = [x for x in test.examples if len(x.text) <= max_len]
-
-        if fix_len == -1:
-            TEXT.fix_length = max([train.max_len, valid.max_len, test.max_len])
-
-        self._train_iter, self._valid_iter, self._test_iter = BucketIterator.splits(
-                (train, valid, test),
-                batch_sizes=(batch_size, batch_size, batch_size),
-                sort_key=lambda x: len(x.text),
-                sort_within_batch=True,
-                repeat=False,
-                device=device
-        )
-
-        TEXT.build_vocab(train, vectors=emb_dim, vectors_cache=path_to_vectors,
-                         max_size=voc_size, min_freq=min_freq)
-        self.train_vocab = TEXT.vocab
-        self.fix_length = TEXT.fix_length
-
-    @property
-    def train(self):
-        return self._train_iter
-
-    @property
-    def test(self):
-        return self._test_iter
-
-    @property
-    def validate(self):
-        return self._valid_iter
-
-    @property
-    def vocab(self):
-        return self.train_vocab
-
-    @property
-    def fix_len(self):
-        return self.fix_length
-
-
-def _preprocess_wiki(dataset, min_len, max_len):
-    if min_len is not None:
-        dataset.examples = [sent for sent in dataset.examples if len(sent.text) >= min_len]
-    if max_len is not None:
-        dataset.examples = [sent for sent in dataset.examples if len(sent.text) <= max_len]
-    for sent in dataset.examples:
-        words = sent.text
-        words = [word for word in words if not word == '@-@']
-        sent.text = words
-    dataset.examples = [sent for sent in dataset.examples if sent.text.count('=') < 2]
-    return dataset
-
-
-class DataLoaderWiki2(ADataLoader):
-    def __init__(self, device, **kwargs):
-        batch_size = kwargs.get('batch_size')
-        path_to_data = kwargs.pop('path_to_data')
-        path_to_vectors = kwargs.pop('path_to_vectors')
-        emb_dim = kwargs.pop('emb_dim')
-        voc_size = kwargs.pop('voc_size', None)
-        min_freq = kwargs.pop('min_freq', 1)
-        fix_len = kwargs.pop('fix_len', None)
-        min_len = kwargs.pop('min_len', None)
-        max_len = kwargs.pop('max_len', None)
-
-        # Defining fields
-        TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>', unk_token='<unk>',
-                                    tokenize=None,
-                                    include_lengths=True, fix_length=fix_len, batch_first=True)
-        train, valid, test = datasets.WikiText2.splits(TEXT, root=path_to_data)
-
-        for dataset in [train, valid, test]:
-            dataset = _preprocess_wiki(dataset, min_len, max_len)
-
-        if fix_len == -1:
-            TEXT.fix_length = max([train.max_len, valid.max_len, test.max_len])
-
-        self._train_iter, self._valid_iter, self._test_iter = BucketIterator.splits(
-                (train, valid, test),
-                batch_sizes=(batch_size, batch_size, len(test)),
-                sort_key=lambda x: len(x.text),
-                sort_within_batch=True,
-                repeat=False,
-                device=device
-
-        )
-
-        TEXT.build_vocab(train, vectors=emb_dim, vectors_cache=path_to_vectors, max_size=voc_size,
-                         min_freq=min_freq)
-        self.train_vocab = TEXT.vocab
-        self.fix_length = TEXT.fix_length
-
-    @property
-    def train(self):
-        return self._train_iter
-
-    @property
-    def test(self):
-        return self._test_iter
-
-    @property
-    def validate(self):
-        return self._valid_iter
-
-    @property
-    def vocab(self):
-        return self.train_vocab
-
-    @property
-    def fix_len(self):
-        return self.fix_length
-
-
-class DataLoaderWiki103(ADataLoader):
-    def __init__(self, device, **kwargs):
-        batch_size = kwargs.get('batch_size')
-        path_to_data = kwargs.pop('path_to_data')
-        path_to_vectors = kwargs.pop('path_to_vectors')
-        emb_dim = kwargs.pop('emb_dim')
-        voc_size = kwargs.pop('voc_size', None)
-        min_freq = kwargs.pop('min_freq', 1)
-        fix_len = kwargs.pop('fix_len', None)
-        min_len = kwargs.pop('min_len', None)
-        max_len = kwargs.pop('max_len', None)
-
-        # Defining fields
-        TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>',
-                                    tokenize=None,
-                                    include_lengths=True, fix_length=fix_len, batch_first=True)
-        train, valid, test = datasets.WikiText103.splits(TEXT, root=path_to_data)
-
-        for dataset in [train, valid, test]:
-            dataset = _preprocess_wiki(dataset, min_len, max_len)
-
-        if fix_len == -1:
-            TEXT.fix_length = max([train.max_len, valid.max_len, test.max_len])
-
-        self._train_iter, self._valid_iter, self._test_iter = BucketIterator.splits(
-                (train, valid, test),
-                batch_sizes=(batch_size, batch_size, len(test)),
-                sort_key=lambda x: len(x.text),
-                sort_within_batch=True,
-                repeat=False,
-                device=device
-        )
-
-        TEXT.build_vocab(train, vectors=emb_dim, vectors_cache=path_to_vectors, max_size=voc_size,
-                         min_freq=min_freq)
-        self.train_vocab = TEXT.vocab
-        self.fix_length = TEXT.fix_length
-
-    @property
-    def train(self):
-        return self._train_iter
-
-    @property
-    def test(self):
-        return self._test_iter
-
-    @property
-    def validate(self):
-        return self._valid_iter
-
-    @property
-    def vocab(self):
-        return self.train_vocab
-
-    @property
-    def fix_len(self):
-        return self.fix_length
-
 
 URLS = {
     'AG_NEWS':
@@ -258,38 +38,260 @@ URLS = {
 }
 
 
+def tokenizer(x, punct=True):
+    """
+    Create a tokenizer function
+    """
+    if punct:
+        return [token.orth_ for token in spacy_en.tokenizer(x) if not token.is_space]
+    else:
+        return [token.orth_ for token in spacy_en.tokenizer(x) if not token.is_punct | token.is_space]
+
+
+def tokenizer_ptb(x, punct=True):
+    """
+    Create a tokenizer function and replaces unk tokens in source textfile
+    """
+    x = x.replace("<unk>", "unk")
+    if punct:
+        return [token.orth_ for token in spacy_en.tokenizer(x) if not token.is_space]
+    else:
+        return [token.orth_ for token in spacy_en.tokenizer(x) if not token.is_punct | token.is_space]
+
+
+class ADataLoader(ABC):
+    def __init__(self, device, **kwargs):
+        self.device = device
+        self.batch_size = kwargs.pop('batch_size')
+        self.path_to_vectors = kwargs.pop('path_to_vectors')
+        self.emb_dim = kwargs.pop('emb_dim')
+        self.voc_size = kwargs.pop('voc_size', None)
+        self.min_freq = kwargs.pop('min_freq', 1)
+        self._fix_length = kwargs.pop('fix_len', None)
+        self.min_len = kwargs.pop('min_len', None)
+        self.max_len = kwargs.pop('max_len', None)
+        self.lower = kwargs.pop('lower', False)
+        self.punctuation = kwargs.pop('punctuation', True)
+        self.dataset_kwargs = kwargs
+
+    @property
+    def train(self):
+        pass
+
+    @property
+    def validate(self):
+        pass
+
+    @property
+    def test(self):
+        pass
+
+
+class DataLoaderPTB(ADataLoader):
+    def __init__(self, device, **kwargs):
+        path_to_data = kwargs.pop('path_to_data')
+        super().__init__(device, **kwargs)
+
+        # Defining fields
+        TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>', lower=self.lower,
+                                    tokenize=tokenizer_ptb,
+                                    include_lengths=True, fix_length=self._fix_length, batch_first=True)
+        train, valid, test = datasets.PennTreebank.splits(TEXT, root=path_to_data)
+
+        if self.min_len is not None:
+            train.examples = [x for x in train.examples if len(x.text) >= self.min_len]
+            valid.examples = [x for x in valid.examples if len(x.text) >= self.min_len]
+            test.examples = [x for x in test.examples if len(x.text) >= self.min_len]
+        if self.max_len is not None:
+            train.examples = [x for x in train.examples if len(x.text) <= self.max_len]
+            valid.examples = [x for x in valid.examples if len(x.text) <= self.max_len]
+            test.examples = [x for x in test.examples if len(x.text) <= self.max_len]
+
+        if self._fix_length == -1:
+            TEXT.fix_length = max([train.max_len, valid.max_len, test.max_len])
+
+        self._train_iter, self._valid_iter, self._test_iter = BucketIterator.splits(
+                (train, valid, test),
+                batch_sizes=(self.batch_size, self.batch_size, self.batch_size),
+                sort_key=lambda x: len(x.text),
+                sort_within_batch=True,
+                repeat=False,
+                device=self.device
+        )
+
+        TEXT.build_vocab(train, vectors=self.emb_dim, vectors_cache=self.path_to_vectors,
+                         max_size=self.voc_size, min_freq=self.min_freq)
+        self.train_vocab = TEXT.vocab
+        self._fix_length = TEXT.fix_length
+
+    @property
+    def train(self):
+        return self._train_iter
+
+    @property
+    def test(self):
+        return self._test_iter
+
+    @property
+    def validate(self):
+        return self._valid_iter
+
+    @property
+    def vocab(self):
+        return self.train_vocab
+
+    @property
+    def fix_len(self):
+        return self._fix_length
+
+
+def _preprocess_wiki(dataset, min_len, max_len):
+    if min_len is not None:
+        dataset.examples = [sent for sent in dataset.examples if len(sent.text) >= min_len]
+    if max_len is not None:
+        dataset.examples = [sent for sent in dataset.examples if len(sent.text) <= max_len]
+    for sent in dataset.examples:
+        words = sent.text
+        words = [word for word in words if not word == '@-@']
+        sent.text = words
+    dataset.examples = [sent for sent in dataset.examples if sent.text.count('=') < 2]
+    return dataset
+
+
+class DataLoaderWiki2(ADataLoader):
+    def __init__(self, device, **kwargs):
+        path_to_data = kwargs.pop('path_to_data')
+        super().__init__(device, **kwargs)
+
+        # Defining fields
+        TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>', unk_token='<unk>',
+                                    tokenize=None, lower=self.lower,
+                                    include_lengths=True, fix_length=self._fix_length, batch_first=True)
+        train, valid, test = datasets.WikiText2.splits(TEXT, root=path_to_data)
+
+        for dataset in [train, valid, test]:
+            dataset = _preprocess_wiki(dataset, self.min_len, self.max_len)
+
+        if self._fix_length == -1:
+            TEXT.fix_length = max([train.max_len, valid.max_len, test.max_len])
+
+        self._train_iter, self._valid_iter, self._test_iter = BucketIterator.splits(
+                (train, valid, test),
+                batch_sizes=(self.batch_size, self.batch_size, len(test)),
+                sort_key=lambda x: len(x.text),
+                sort_within_batch=True,
+                repeat=False,
+                device=self.device
+
+        )
+
+        TEXT.build_vocab(train, vectors=self.emb_dim, vectors_cache=self.path_to_vectors, max_size=self.voc_size,
+                         min_freq=self.min_freq)
+        self.train_vocab = TEXT.vocab
+        self._fix_length = TEXT.fix_length
+
+    @property
+    def train(self):
+        return self._train_iter
+
+    @property
+    def test(self):
+        return self._test_iter
+
+    @property
+    def validate(self):
+        return self._valid_iter
+
+    @property
+    def vocab(self):
+        return self.train_vocab
+
+    @property
+    def fix_len(self):
+        return self._fix_length
+
+
+class DataLoaderWiki103(ADataLoader):
+    def __init__(self, device, **kwargs):
+        path_to_data = kwargs.pop('path_to_data')
+        super().__init__(device, **kwargs)
+
+        # Defining fields
+        TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>',
+                                    tokenize=None, lower=self.lower,
+                                    include_lengths=True, fix_length=self._fix_length, batch_first=True)
+        train, valid, test = datasets.WikiText103.splits(TEXT, root=path_to_data)
+
+        for dataset in [train, valid, test]:
+            dataset = _preprocess_wiki(dataset, self.min_len, self.max_len)
+
+        if self._fix_length == -1:
+            TEXT.fix_length = max([train.max_len, valid.max_len, test.max_len])
+
+        self._train_iter, self._valid_iter, self._test_iter = BucketIterator.splits(
+                (train, valid, test),
+                batch_sizes=(self.batch_size, self.batch_size, len(test)),
+                sort_key=lambda x: len(x.text),
+                sort_within_batch=True,
+                repeat=False,
+                device=self.device
+        )
+
+        TEXT.build_vocab(train, vectors=self.emb_dim, vectors_cache=self.path_to_vectors, max_size=self.voc_size,
+                         min_freq=self.min_freq)
+        self.train_vocab = TEXT.vocab
+        self._fix_length = TEXT.fix_length
+
+    @property
+    def train(self):
+        return self._train_iter
+
+    @property
+    def test(self):
+        return self._test_iter
+
+    @property
+    def validate(self):
+        return self._valid_iter
+
+    @property
+    def vocab(self):
+        return self.train_vocab
+
+    @property
+    def fix_len(self):
+        return self._fix_length
+
+
 class DataLoaderYelp2019(ADataLoader):
-    def __init__(self, device, dtype=torch.float32, **kwargs):
-        batch_size = kwargs.pop('batch_size')
-        text_fix_len = kwargs.pop('text_fix_len', None)
-        emb_dim = kwargs.pop('emb_dim')
-        voc_size = kwargs.pop('voc_size', None)
-        path_to_vectors = kwargs.pop('path_to_vectors')
-        min_freq = kwargs.pop('min_freq')
+    def __init__(self, device, **kwargs):
         server = kwargs.pop('server', 'localhost')
-        data_collection_name = kwargs.pop('data_collection')
         db_name = kwargs.pop('db')
+        data_collection_name = kwargs.pop('data_collection')
+        super().__init__(device, **kwargs)
+
         train_col = f'{data_collection_name}_train'
         val_col = f'{data_collection_name}_validation'
         test_col = f'{data_collection_name}_test'
 
         FIELD_TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>', unk_token='<unk>',
-                                          tokenize=tokenizer, batch_first=True, use_vocab=True, fix_length=text_fix_len,
-                                          include_lengths=True)
+                                          tokenize=partial(tokenizer, punct=self.punctuation), batch_first=True,
+                                          use_vocab=True,
+                                          fix_length=self._fix_length,
+                                          include_lengths=True, lower=self.lower)
 
         train, valid, test = datasets.Yelp2019.splits(server, db_name, text_field=FIELD_TEXT, train=train_col,
-                                                      validation=val_col, test=test_col,
-                                                      **kwargs)
-        if text_fix_len == -1:
-            TEXT.fix_length = max([train.max_len, valid.max_len, test.max_len])
+                                                      validation=val_col, test=test_col, **self.dataset_kwargs)
+        if self._fix_length == -1:
+            FIELD_TEXT.fix_length = max([train.max_len, valid.max_len, test.max_len])
 
         self._train_iter, self._valid_iter, self._test_iter = BucketIterator.splits(
-                (train, valid, test), batch_sizes=(batch_size, batch_size, len(test)),
-                sort_key=lambda x: len(x.text), sort_within_batch=True, repeat=False, device=device)
-        FIELD_TEXT.build_vocab(train, vectors=emb_dim, vectors_cache=path_to_vectors, max_size=voc_size,
-                               min_freq=min_freq)
+                (train, valid, test), batch_sizes=(self.batch_size, self.batch_size, len(test)),
+                sort_key=lambda x: len(x.text), sort_within_batch=True, repeat=False, device=self.device)
+        FIELD_TEXT.build_vocab(train, vectors=self.emb_dim, vectors_cache=self.path_to_vectors, max_size=self.voc_size,
+                               min_freq=self.min_freq)
         self.train_vocab = FIELD_TEXT.vocab
-        self._text_fix_length = FIELD_TEXT.fix_length
+        self._fix_length = FIELD_TEXT.fix_length
 
     @property
     def train(self):
@@ -305,7 +307,7 @@ class DataLoaderYelp2019(ADataLoader):
 
     @property
     def fix_len(self):
-        return self._text_fix_length
+        return self._fix_length
 
     @property
     def vocab(self):
@@ -706,13 +708,13 @@ class DataLoaderYelp15(ADataLoader):
 
         print("create data loaders")
         self._train_iter = DataLoader(train, batch_size=self.batch_size, shuffle=True,
-                                      collate_fn=self.generate_batch, )
+                                       collate_fn=self.generate_batch, )
 
         self._valid_iter = DataLoader(valid, batch_size=self.batch_size, shuffle=True,
-                                      collate_fn=self.generate_batch)
+                                       collate_fn=self.generate_batch)
 
         self._test_iter = DataLoader(test, batch_size=self.batch_size, shuffle=True,
-                                     collate_fn=self.generate_batch)
+                                      collate_fn=self.generate_batch)
 
         self.train_vocab = vocab
 
