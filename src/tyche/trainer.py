@@ -48,6 +48,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         try:
             self.n_train_batches = len(data_loader.train)
             self.n_val_batches = len(data_loader.validate)
+            self.n_test_batches = len(data_loader.test)
         except:
             print("Number of train batches undefined, working with one ")
             self.n_train_batches = 1
@@ -144,7 +145,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
                 epoch_stats = self._update_stats(epoch_stats, batch_stat)
             p_bar.close()
 
-            self._normalize_stats(self.n_val_batches, epoch_stats)
+            self._normalize_stats(self.n_test_batches, epoch_stats)
             self._log_epoch('validate/epoch/', epoch_stats)
 
         return epoch_stats

@@ -22,6 +22,7 @@ def tokenizer(x):
     """
     Create a tokenizer function
     """
+    x = x.replace("<unk>", "unk")
     return [tok.text for tok in spacy_en.tokenizer(x) if tok.text != ' ']
 
 
