@@ -151,8 +151,8 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         return epoch_stats
 
     def _validate_step(self, minibatch: Any, batch_idx: int, epoch: int, p_bar):
-        if type(self.model).__name__ == "WAE":
-            stats = self.model.validate_step(minibatch, scheduler=self.schedulers)
+        if type(self.model).__name__ in ("WAE", "SupervisedWAE"):
+            stats = self.model.validate_step(minibatch, self.global_step, scheduler=self.schedulers)
         else:
             stats = self.model.validate_step(minibatch)
 
