@@ -146,7 +146,7 @@ def unpack_cv_parameters(params, prefix=None):
 
             if len(param_pool) > 0:
                 cv_params.extend(param_pool)
-        elif isinstance(value, tuple) and isinstance(value[0], dict):
+        elif isinstance(value, tuple) and len(value) != 0 and isinstance(value[0], dict):
             for ix, v in enumerate(value):
                 if isinstance(v, dict):
                     if prefix is None:

@@ -45,14 +45,8 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
             self.schedulers = None
 
         self.data_loader = data_loader
-        try:
-            self.n_train_batches = len(data_loader.train)
-            self.n_val_batches = len(data_loader.validate)
-            self.n_test_batches = len(data_loader.test)
-        except:
-            print("Number of train batches undefined, working with one ")
-            self.n_train_batches = 1
-            self.n_val_batches = 1.
+        self.n_train_batches = len(data_loader.train)
+        self.n_val_batches = len(data_loader.validate)
 
         self.global_step = 0
         self.best_model = {'train_loss': float('inf'),
