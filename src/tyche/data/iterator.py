@@ -61,11 +61,11 @@ class BPTTPointIterator(Iterator):
                 if self.train:
                     seq_len, time, mark = self.__series_2_bptt(batch, batch_size)
                     yield (Batch.fromvars(
-                            dataset, batch_size,
-                            time=(ti[:, :, :2], l),
-                            mark=m[:, :, 0],
-                            target_time=ti[:, :, -1],
-                            target_mark=m[:, :, -1]) for ti, l, m in zip(time, seq_len, mark))
+                        dataset, batch_size,
+                        time=(ti[:, :, :2], l),
+                        mark=m[:, :, 0],
+                        target_time=ti[:, :, -1],
+                        target_mark=m[:, :, -1]) for ti, l, m in zip(time, seq_len, mark))
                 else:
                     batch.target_time = batch.time[0][:, :, 2]
                     batch.time = (batch.time[0][:, :, :2], batch.time[1])
@@ -132,15 +132,17 @@ class BPTTIterator(Iterator):
 
     def __init__(self, dataset, batch_size, bptt_len, **kwargs):
         self.bptt_len = bptt_len
+        semantic_key = 'text'
         if 'bow' in dataset.fields.keys():
             semantic_key = 'bow'
-            self.__bptt_2_minibatch = self.__bow_bptt_2_minibatches
-        else:
-            semantic_key = 'text'
-            self.__bptt_2_minibatch = self.__text_bptt_2_minibatches
+        is_mark = 'mark' in dataset.fields.keys()
+
+        self.__bptt_2_minibatch = getattr(self,
+                                          f'_{semantic_key}_bptt_2_minibatches_mark' if is_mark else f'_{semantic_key}_bptt_2_minibatches')
         target_key = 'target_' + semantic_key
         self.fields = list(dataset.fields.items()) + [('target_time', Field(use_vocab=False)),
-                                                      (target_key, Field(use_vocab=False))]
+                                                      (target_key, Field(use_vocab=False)),
+                                                      ('target_mark', Field(use_vocab=False))]
         super(BPTTIterator, self).__init__(dataset, batch_size, **kwargs)
 
     def __iter__(self):
@@ -179,7 +181,18 @@ class BPTTIterator(Iterator):
             if not self.repeat:
                 return
 
-    def __bow_bptt_2_minibatches(self, batch, batch_size, dataset):
+    def _bow_bptt_2_minibatches_mark(self, batch, batch_size, dataset):
+        time, time_len, bow, mark = self.__bow_series_2_bptt(batch, batch_size)
+        yield (Batch.fromvars(dataset, batch_size,
+                              time=(t[:, :, :2], l),
+                              bow=b[:, :, 0],
+                              mark=m[:, :, 0],
+                              target_time=t[:, :, -1],
+                              target_bow=b[:, :, -1],
+                              target_mark=m[:, :, -1])
+               for t, l, b, m in zip(time, time_len, bow,mark))
+
+    def _bow_bptt_2_minibatches(self, batch, batch_size, dataset):
         time, time_len, bow = self.__bow_series_2_bptt(batch, batch_size)
         yield (Batch.fromvars(dataset, batch_size,
                               time=(t[:, :, :2], l),
@@ -188,7 +201,7 @@ class BPTTIterator(Iterator):
                               target_bow=b[:, :, -1])
                for t, l, b in zip(time, time_len, bow))
 
-    def __text_bptt_2_minibatches(self, batch, batch_size, dataset):
+    def _text_bptt_2_minibatches(self, batch, batch_size, dataset):
         time, time_len, text, text_len = self.__text_series_2_bptt(batch, batch_size)
         yield (Batch.fromvars(dataset, batch_size,
                               time=(ti[:, :, :2], ti_l),
@@ -196,15 +209,31 @@ class BPTTIterator(Iterator):
                               target_time=ti[:, :, -1])
                for ti, ti_l, te, te_l in zip(time, time_len, text, text_len))
 
+    def _text_bptt_2_minibatches_mark(self, batch, batch_size, dataset):
+        time, time_len, text, text_len, marks = self.__text_series_2_bptt(batch, batch_size)
+        yield (Batch.fromvars(dataset, batch_size,
+                              time=(ti[:, :, :2], ti_l),
+                              text=(te, te_l),
+                              mark=m[:, :, 0],
+                              target_time=ti[:, :, -1],
+                              target_mark=m[:, :, -1])
+               for ti, ti_l, te, te_l, m in zip(time, time_len, text, text_len, marks))
+
     def __text_series_2_bptt(self, batch: Batch, batch_size: int):
         time, seq_len = batch.time
         text, _, text_len = batch.text  # B, T, TEXT_LEN
+
         num_windows = int(time.size(1) / self.bptt_len)
         text = text.view(batch_size, num_windows, self.bptt_len, -1)
         text_len = text_len.view(batch_size, num_windows, -1)
         time, seq_len = self.__series_2_bppt(batch_size, num_windows, seq_len, time)
         text = text.unbind(1)
         text_len = text_len.unbind(1)
+        if hasattr(batch, 'mark'):
+            mark = batch.mark
+            mark = mark.view(batch_size, num_windows, self.bptt_len, 2, -1)
+            mark = mark.unbind(1)
+            return time, seq_len, text, text_len, mark
         return time, seq_len, text, text_len
 
     def __bow_series_2_bptt(self, batch: Batch, batch_size: int):
@@ -214,6 +243,11 @@ class BPTTIterator(Iterator):
         bow = bow.view(batch_size, num_windows, self.bptt_len, 2, -1)
         time, seq_len = self.__series_2_bppt(batch_size, num_windows, seq_len, time)
         bow = bow.unbind(1)
+        if hasattr(batch, 'mark'):
+            mark = batch.mark
+            mark = mark.view(batch_size, num_windows, self.bptt_len, 2, -1)
+            mark = mark.unbind(1)
+            return time, seq_len, bow, mark
         return time, seq_len, bow
 
     def __series_2_bppt(self, batch_size, num_windows, seq_len, time):
