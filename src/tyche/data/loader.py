@@ -1,4 +1,7 @@
 import pickle as pickle
+import spacy
+import torch
+import torch.nn.functional as F
 from abc import ABC
 from collections import Counter
 from functools import partial
@@ -20,6 +23,7 @@ from torchtext.vocab import Vocab
 from tqdm import tqdm
 from tyche import data
 from tyche.data import datasets
+from unittest.mock import Mock
 
 spacy_en = spacy.load('en_core_web_sm')
 
@@ -168,14 +172,16 @@ class ADataLoader(ABC):
 
 class DataLoaderPTB(ADataLoader):
     def __init__(self, device, **kwargs):
-        path_to_data = kwargs.pop('path_to_data')
+        self.path_to_data = kwargs.pop('path_to_data')
+        self.path_to_sample = kwargs.pop('path_to_sample', None)
         super().__init__(device, **kwargs)
 
         # Defining fields
-        TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>', lower=self.lower,
-                                    tokenize=tokenizer_ptb,
-                                    include_lengths=True, fix_length=self._fix_length, batch_first=True)
-        train, valid, test = datasets.PennTreebank.splits(TEXT, root=path_to_data)
+        self.TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>', lower=self.lower,
+                                         tokenize=tokenizer_ptb,
+                                         include_lengths=True, fix_length=self._fix_length, batch_first=True)
+
+        train, valid, test = datasets.PennTreebank.splits(self.TEXT, root=self.path_to_data)
 
         if self.min_len is not None:
             train.examples = [x for x in train.examples if len(x.text) >= self.min_len]
@@ -187,21 +193,38 @@ class DataLoaderPTB(ADataLoader):
             test.examples = [x for x in test.examples if len(x.text) <= self.max_len]
 
         if self._fix_length == -1:
-            TEXT.fix_length = max([train.max_len, valid.max_len, test.max_len])
+            self.TEXT.fix_length = max([train.max_len, valid.max_len, test.max_len])
 
-        self._train_iter, self._valid_iter, self._test_iter = BucketIterator.splits(
+        self.TEXT.build_vocab(train, vectors=self.emb_dim, vectors_cache=self.path_to_vectors,
+                              max_size=self.voc_size, min_freq=self.min_freq)
+        self.train_vocab = self.TEXT.vocab
+        self._fix_length = self.TEXT.fix_length
+
+        if self.path_to_sample is None:
+            self._train_iter, self._valid_iter, self._test_iter = BucketIterator.splits(
                 (train, valid, test),
                 batch_sizes=(self.batch_size, self.batch_size, self.batch_size),
                 sort_key=lambda x: len(x.text),
                 sort_within_batch=True,
                 repeat=False,
                 device=self.device
-        )
+            )
+        else:
+            # train model on generated samples
+            sample, _, _ = datasets.PennTreebank.splits(self.TEXT, root=self.path_to_data, train=self.path_to_sample)
+            if self.min_len is not None:
+                sample.examples = [x for x in sample.examples if len(x.text) >= self.min_len]
+            if self.max_len is not None:
+                sample.examples = [x for x in sample.examples if len(x.text) <= self.max_len]
 
-        TEXT.build_vocab(train, vectors=self.emb_dim, vectors_cache=self.path_to_vectors,
-                         max_size=self.voc_size, min_freq=self.min_freq)
-        self.train_vocab = TEXT.vocab
-        self._fix_length = TEXT.fix_length
+            self._train_iter, self._valid_iter, self._test_iter = BucketIterator.splits(
+                (sample, valid, test),
+                batch_sizes=(self.batch_size, self.batch_size, self.batch_size),
+                sort_key=lambda x: len(x.text),
+                sort_within_batch=True,
+                repeat=False,
+                device=self.device
+            )
 
     @property
     def train(self):
@@ -519,7 +542,7 @@ class DataLoaderYelp(ADataLoader):
         pad = self.train_vocab.stoi["<pad>"]
         text = [self.add_padding(entry[1], sos, eos, pad) for entry in batch]
         label = torch.tensor([entry[0] for entry in batch])
-        seq_len = [torch.tensor(len(entry)) for entry in text]
+        seq_len = [torch.tensor(len(entry[1]) + 2) for entry in batch]
         text = torch.stack(text)
         seq_len = torch.stack(seq_len)
         text, seq_len, label = text.to(self.device), seq_len.to(self.device), label.to(self.device)
@@ -760,6 +783,7 @@ class DataLoaderYelp15(ADataLoader):
         self.batch_size = kwargs.get('batch_size')
         self.path_to_data = kwargs.pop('path_to_data')
         self.path_to_vectors = kwargs.pop('path_to_vectors')
+        self.path_to_sample = kwargs.pop('path_to_sample', None)
         self.emb_dim = kwargs.pop('emb_dim')
         self.voc_size = kwargs.pop('voc_size')
         self.min_freq = kwargs.pop('min_freq', 1)
@@ -786,8 +810,18 @@ class DataLoaderYelp15(ADataLoader):
         test = text_classification.TextClassificationDataset(vocab, list_test_data, list_test_labels)
 
         print("create data loaders")
-        self._train_iter = DataLoader(train, batch_size=self.batch_size, shuffle=True,
-                                      collate_fn=self.generate_batch, )
+
+        if self.path_to_sample is not None:
+            print("training over samples")
+            self.add_zero_label_to_sentences()
+            list_sample_data, list_sample_labels = self.create_data_from_textfile(vocab, self.path_to_sample,
+                                                                                include_unk=True)
+            sample = text_classification.TextClassificationDataset(vocab, list_sample_data, list_sample_labels)
+            self._train_iter = DataLoader(sample, batch_size=self.batch_size, shuffle=True,
+                                          collate_fn=self.generate_batch)
+        else:
+            self._train_iter = DataLoader(train, batch_size=self.batch_size, shuffle=True,
+                                      collate_fn=self.generate_batch)
 
         self._valid_iter = DataLoader(valid, batch_size=self.batch_size, shuffle=True,
                                       collate_fn=self.generate_batch)
@@ -848,9 +882,10 @@ class DataLoaderYelp15(ADataLoader):
         sos = self.train_vocab.stoi["<sos>"]
         eos = self.train_vocab.stoi["<eos>"]
         pad = self.train_vocab.stoi["<pad>"]
-        text = [self.add_padding(entry[1], sos, eos, pad) for entry in batch]
-        label = torch.tensor([entry[0] for entry in batch])
-        seq_len = [torch.tensor(len(entry)) for entry in text]
+        sorted_batch = sorted(batch, key=lambda x: len(x[1]), reverse=True)
+        text = [self.add_padding(entry[1], sos, eos, pad) for entry in sorted_batch]
+        label = torch.tensor([entry[0] for entry in sorted_batch])
+        seq_len = [torch.tensor(len(entry[1]) + 2) for entry in sorted_batch]
         text = torch.stack(text)
         seq_len = torch.stack(seq_len)
         text, seq_len, label = text.to(self.device), seq_len.to(self.device), label.to(self.device)
@@ -873,6 +908,21 @@ class DataLoaderYelp15(ADataLoader):
             text_entry = F.pad(text_entry, pad_length, value=pad)
 
         return text_entry
+
+    def add_zero_label_to_sentences(self):
+        """adds generic 0 label to generated sentence without one"""
+        with open(self.path_to_sample) as file:
+            new_name = self.path_to_sample.replace(".txt", "_with_label.txt")
+            with open(new_name, "w") as output:
+                for i, line in enumerate(file):
+                    words = line.split(" ")
+                    if len(words) >= 202:
+                        word_length = len(words[201])
+                        line = line[:len(line) - word_length - 1]
+                    new_line = "0\t" + line
+                    output.write(new_line)
+
+        self.path_to_sample = new_name
 
     @property
     def train(self):
