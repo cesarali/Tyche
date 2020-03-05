@@ -68,8 +68,8 @@ class ADataLoader(ABC):
     def __init__(self, device, **kwargs):
         self.device = device
         self.batch_size = kwargs.pop('batch_size')
-        self.path_to_vectors = kwargs.pop('path_to_vectors')
-        self.emb_dim = kwargs.pop('emb_dim')
+        self.path_to_vectors = kwargs.pop('path_to_vectors', None)
+        self.emb_dim = kwargs.pop('emb_dim', None)
         self.voc_size = kwargs.pop('voc_size', None)
         self.min_freq = kwargs.pop('min_freq', 1)
         self._fix_length = kwargs.pop('fix_len', None)
