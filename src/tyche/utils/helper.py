@@ -5,12 +5,13 @@ from __future__ import print_function, unicode_literals
 
 import copy
 import itertools
+from functools import reduce
+from importlib import import_module
+
 import numpy as np
 import torch as to
 import torch as torch
 import yaml
-from functools import reduce
-from importlib import import_module
 from scipy import linalg as la
 
 
@@ -37,7 +38,7 @@ def create_instance(name, params, *args):
     """Creates an instance of class given configuration.
 
     :param name: of the module we want to create
-    :param params: dictionary containing information how to instanciate the class
+    :param params: dictionary containing information how to instantiate the class
     :returns: instance of a class
     :rtype:
 
@@ -54,7 +55,7 @@ def create_instance(name, params, *args):
 
 def create_nonlinearity(name):
     """
-    Returns instance of nonlinearity class (from torch.nn)
+    Returns instance of non-linearity class (from torch.nn)
     """
     module = import_module("torch.nn")
     clazz = getattr(module, name)
@@ -65,7 +66,7 @@ def create_nonlinearity(name):
 
 def get_class_nonlinearity(name):
     """
-    Returns nonlinearity class (from torch.nn)
+    Returns non-linearity class (from torch.nn)
     """
     module = import_module("torch.nn")
     clazz = getattr(module, name)
@@ -75,7 +76,7 @@ def get_class_nonlinearity(name):
 
 def create_cost_function(name, *args):
     """
-    Returns instance of cost fuctions (from torch.nn)
+    Returns instance of cost functions (from torch.nn)
     """
     module = import_module("torch.nn")
     clazz = getattr(module, name)
@@ -326,7 +327,7 @@ def frozen_params(module):
         p.requires_grad = False
 
 
-def sum_dictionares(dicts: dict):
+def sum_dictionaries(dicts: dict):
     """
     Sums the values of the common keys in dictionary.
 
