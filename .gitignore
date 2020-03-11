@@ -49,3 +49,7 @@ MANIFEST
 
 # Per-project virtualenvs
 .venv*/
+
+
+# Resources
+tests/resources/*
