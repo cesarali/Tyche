@@ -27,7 +27,7 @@ class AModel(nn.Module, ABC):
         raise NotImplementedError("The new_stats method is not implemented in your class!")
 
     @abstractmethod
-    def loss(self, y: Any, y_target: Any) -> Dict:
+    def loss(self, *inputs) -> Dict:
         raise NotImplementedError("The loss method is not implemented in your class!")
 
     @abstractmethod
