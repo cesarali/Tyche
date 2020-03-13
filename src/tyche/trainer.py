@@ -46,7 +46,6 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
 
         self.data_loader = data_loader
         self.n_train_batches = len(data_loader.train)
-        self.n_val_batches = len(data_loader.validate)
 
         self.global_step = 0
         self.best_model = {'train_loss': float('inf'),
@@ -104,6 +103,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
 
     def _validate_epoch(self, epoch: int) -> Dict:
         self.model.eval()
+        self.n_val_batches = len(self.data_loader.validate)
         with torch.no_grad():
             p_bar = tqdm.tqdm(
                     desc="Validation batch: ",
