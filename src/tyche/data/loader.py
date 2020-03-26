@@ -95,6 +95,26 @@ class ADataLoader(ABC):
     def test(self):
         pass
 
+    @property
+    def n_train_batches(self):
+        return len(self.train)
+
+    @property
+    def n_validate_batches(self):
+        return len(self.validate)
+
+    @property
+    def n_test_batches(self):
+        return len(self.test)
+
+    @property
+    def train_set_size(self):
+        return len(self.train.dataset)
+
+    @property
+    def validation_set_size(self):
+        return len(self.validate.dataset)
+
 
 class DataLoaderPTB(ADataLoader):
     def __init__(self, device, **kwargs):
