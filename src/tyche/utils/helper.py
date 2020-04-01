@@ -318,13 +318,19 @@ def is_primitive(v):
 
 
 def free_params(module):
-    for p in module.parameters():
-        p.requires_grad = True
+    if type(module) is not list:
+        module = [module]
+    for m in module:
+        for p in m.parameters():
+            p.requires_grad = True
 
 
 def frozen_params(module):
-    for p in module.parameters():
-        p.requires_grad = False
+    if type(module) is not list:
+        module = [module]
+    for m in module:
+        for p in m.parameters():
+            p.requires_grad = False
 
 
 def sum_dictionaries(dicts: dict):
