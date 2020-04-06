@@ -105,7 +105,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
 
     def _validate_epoch(self, epoch: int) -> Dict:
         self.model.eval()
-        self.n_val_batches = len(self.data_loader.validate)
+
         with torch.no_grad():
             p_bar = tqdm.tqdm(
                     desc="Validation batch: ",
