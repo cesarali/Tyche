@@ -147,11 +147,12 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         return epoch_stats
 
     def _validate_step(self, minibatch: Any, batch_idx: int, epoch: int, p_bar):
-        if type(self.model).__name__ in ("WAE", "SupervisedWAE", "DiscreteWGAN"):
-            stats = self.model.validate_step(minibatch, self.global_step, scheduler=self.schedulers)
-        else:
-            stats = self.model.validate_step(minibatch)
+        # if type(self.model).__name__ in ("WAE", "SupervisedWAE", "DiscreteWGAN"):
+        #     stats = self.model.validate_step(minibatch, self.global_step, scheduler=self.schedulers)
+        # else:
+        #     stats = self.model.validate_step(minibatch)
 
+        stats = self.model.validate_step(minibatch)
         self.tensor_2_item(stats)
         self._log_validation_step(epoch, batch_idx, stats)
         p_bar.set_postfix_str("loss: {:4.8g}".format(stats['loss']))

@@ -309,6 +309,25 @@ def gumbel_softmax(pi, tau, device):
     y_hard = y_hard.view(*shape)
     return (y_hard - y).detach() + y
 
+def gumbel_softmax_argmax(pi, tau, device):
+    """
+    Gumbel-Softmax distribution.
+    pi: [B, ..., n_classes] class probs of categorical z
+    tau: temperature
+    Returns [B, ..., n_classes] as a one-hot vector
+            [B, ..., 1] (argmax over classes)
+    """
+    y = gumbel_softmax_sample(pi, tau, device)
+    shape = y.size()
+    _, ind = y.max(dim=-1)  # [B, ...]
+    y_hard = torch.zeros_like(y).view(-1, shape[-1])
+    y_hard.scatter_(1, ind.view(-1, 1), 1)
+    y_hard = y_hard.view(*shape)
+    y_ = (y_hard - y).detach() + y
+    list_indices = torch.arange(shape[-1]).view(1, 1, shape[-1]).float()
+    indices = torch.sum(y_ * list_indices, dim=-1)
+    return y_, indices
+
 
 def is_primitive(v):
     """
