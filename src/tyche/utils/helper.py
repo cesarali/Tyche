@@ -7,6 +7,7 @@ import copy
 import itertools
 from functools import reduce
 from importlib import import_module
+from typing import List
 
 import numpy as np
 import torch as to
@@ -352,7 +353,7 @@ def frozen_params(module):
             p.requires_grad = False
 
 
-def sum_dictionaries(dicts: dict):
+def sum_dictionaries(dicts: List):
     """
     Sums the values of the common keys in dictionary.
 
