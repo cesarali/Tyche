@@ -1,8 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import Any, List, Dict
+from typing import Any, Dict
 
 import torch.nn as nn
-
 from tyche.utils.helper import create_instance
 
 
@@ -42,7 +41,7 @@ class AModel(nn.Module, ABC):
     def validate_step(self, minibatch: Any) -> Dict:
         raise NotImplementedError("The validate_step method is not implemented in your class!")
 
-    def validate_epoch(self,dataloader: Any = None, epoch: int = 1) -> Dict:
+    def validate_epoch(self, dataloader: Any = None, epoch: int = 1) -> Dict:
         """
         This is performed only once every
             save_after_epoch: 10

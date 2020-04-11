@@ -117,10 +117,6 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
                 epoch_stats = self._update_stats(epoch_stats, batch_stat)
             p_bar.close()
 
-            if epoch % self.save_after_epoch == 0:
-                final_stats = self.model.validate_epoch(self.data_loader, epoch)
-                epoch_stats.update(final_stats)
-
             self._normalize_stats(self.n_val_batches, epoch_stats)
             self._log_epoch('validate/epoch/', epoch_stats)
 
