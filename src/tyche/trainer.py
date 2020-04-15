@@ -108,7 +108,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         with torch.no_grad():
             p_bar = tqdm.tqdm(
                     desc="Validation batch: ",
-                    total=self.n_val_batches,
+                    total=self.n_validate_batches,
                     unit="batch")
 
             epoch_stats = None
@@ -117,7 +117,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
                 epoch_stats = self._update_stats(epoch_stats, batch_stat)
             p_bar.close()
 
-            self._normalize_stats(self.n_val_batches, epoch_stats)
+            self._normalize_stats(self.n_validate_batches, epoch_stats)
             self._log_epoch('validate/epoch/', epoch_stats)
 
         return epoch_stats
