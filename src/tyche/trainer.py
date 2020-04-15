@@ -46,7 +46,8 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
             self.schedulers = None
 
         self.data_loader = data_loader
-        self.n_train_batches = len(data_loader.train)
+        self.n_train_batches = data_loader.n_train_batches
+        self.n_validate_batches = data_loader.n_validate_batches
 
         self.global_step = 0
         self.best_model = {'train_loss': float('inf'),
@@ -104,7 +105,6 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
 
     def _validate_epoch(self, epoch: int) -> Dict:
         self.model.eval()
-        self.n_val_batches = len(self.data_loader.validate)
         with torch.no_grad():
             p_bar = tqdm.tqdm(
                     desc="Validation batch: ",
@@ -142,11 +142,6 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         return epoch_stats
 
     def _validate_step(self, minibatch: Any, batch_idx: int, epoch: int, p_bar):
-        # if type(self.model).__name__ in ("WAE", "SupervisedWAE", "DiscreteWGAN"):
-        #     stats = self.model.validate_step(minibatch, self.global_step, scheduler=self.schedulers)
-        # else:
-        #     stats = self.model.validate_step(minibatch)
-
         stats = self.model.validate_step(minibatch)
         self.tensor_2_item(stats)
         self._log_validation_step(epoch, batch_idx, stats)
@@ -285,7 +280,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         return logger
 
     def _log_train_step(self, epoch: int, batch_idx: int, stats: Dict) -> None:
-        data_len = len(self.data_loader.train.dataset)
+        data_len = self.data_loader.train_set_size
         log = self._build_raw_log_str('Train epoch', batch_idx, epoch, stats, data_len, self.batch_size)
         self.t_logger.info(log)
         for k, v in stats.items():
@@ -293,7 +288,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
                 self.summary.add_scalar('train/batch/' + k, v, self.global_step)
 
     def _log_validation_step(self, epoch: int, batch_idx: int, logs: Dict) -> None:
-        data_len = len(self.data_loader.validate.dataset)
+        data_len = self.data_loader.validation_set_size
         log = self._build_raw_log_str('Validation epoch', batch_idx, epoch, logs, data_len, self.batch_size)
         self.t_logger.info(log)
         for k, v in logs.items():
