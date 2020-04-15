@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from torchtext.data import Dataset, Field
 from torchtext.data.batch import Batch
-from torchtext.data.iterator import Iterator
+from torchtext.data.iterator import Iterator, BucketIterator
 
 
 class BPTTPointIterator(Iterator):
@@ -408,3 +408,13 @@ class BPTTIterator(Iterator):
         time = time.unbind(1)
         seq_len = seq_len.unbind(1)
         return time, seq_len
+
+
+class FilterBucketIterator(BucketIterator):
+    def __init__(self, dataset, batch_size, filter, **kwargs):
+        self.filter = filter
+        super(FilterBucketIterator, self).__init__(dataset, batch_size, **kwargs)
+
+    def data(self):
+        xs = [self.dataset[i] for i in self.random_shuffler(range(len(self.dataset))) if i in self.filter]
+        return xs
