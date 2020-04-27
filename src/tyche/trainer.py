@@ -288,7 +288,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
                 self.summary.add_scalar('train/batch/' + k, v, self.global_step)
 
     def _log_validation_step(self, epoch: int, batch_idx: int, logs: Dict) -> None:
-        data_len = self.data_loader.validate_set_size
+        data_len = self.data_loader.validation_set_size
         log = self._build_raw_log_str('Validation epoch', batch_idx, epoch, logs, data_len, self.batch_size)
         self.t_logger.info(log)
         for k, v in logs.items():
