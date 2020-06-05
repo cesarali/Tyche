@@ -8,27 +8,50 @@ from typing import Dict
 
 import matplotlib
 import torch
+import torch.distributed as dist
 import tqdm
 import yaml
-from tensorboardX import SummaryWriter
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.tensorboard import SummaryWriter
 
-from .utils.helper import get_device, is_primitive, create_instance
+from .utils.helper import is_primitive, create_instance, get_device
+
+
+class MyDistributedDataParallel(DDP):
+    def train_step(self, *args, **kwargs):
+        return self.module.train_step(*args, **kwargs)
+
+    def validate_step(self, *args, **kwargs):
+        return self.module.validate_step(*args, **kwargs)
 
 
 class BaseTrainingProcedure(metaclass=ABCMeta):
 
-    def __init__(self, model, optimizer, resume, params, data_loader, train_logger=None, **kwargs):
+    def __init__(self, model, optimizer, distributed, resume, params, data_loader, train_logger=None, **kwargs):
         self.logger = logging.getLogger(self.__class__.__name__)
-        self.model = model
+        self.data_loader = data_loader
+        self.distributed = distributed
         self.optimizer = optimizer
         self.params = params
+        self.rank = 0
+        self.world_size = -1
+        if distributed:
+            self.rank = dist.get_rank()
+            self.world_size = dist.get_world_size()
+            self.device = get_device(params, self.rank, self.logger)
+            self.model = model.to(self.device)
+            self.model = MyDistributedDataParallel(self.model, device_ids=[self.device])
+        else:
+            self.device = get_device(params, self.rank, self.logger)
+            self.model = model.to(self.device)
 
-        self._prepare_dirs()
-        self._save_params()
-        self.t_logger = self._setup_logging()
-        self.summary = SummaryWriter(self.tensorboard_dir)
-        self.device = get_device(params)
-        self.model.to(self.device)
+        self.is_rank_0 = (not self.distributed) or (self.distributed and self.rank == 0)
+        if self.is_rank_0:
+            self._prepare_dirs()
+            self._save_params()
+            self.t_logger = self._setup_logging()
+            self.summary = SummaryWriter(self.tensorboard_dir)
+
         self.start_epoch = 0
         self.n_epochs = self.params['trainer']['epochs']
         self.save_after_epoch = self.params['trainer']['args']['save_after_epoch']
@@ -60,65 +83,75 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
             self._resume_check_point(resume)
 
     def train(self):
-        e_bar = tqdm.tqdm(
-                desc='Epoch: ',
-                total=self.n_epochs,
-                unit='epoch',
-                initial=self.start_epoch,
-                postfix='train loss: -, validation loss: -')
+        if self.is_rank_0:
+            e_bar = tqdm.tqdm(
+                    desc='Epoch: ',
+                    total=self.n_epochs,
+                    unit='epoch',
+                    initial=self.start_epoch,
+                    postfix='train loss: -, validation loss: -')
         for epoch in range(self.start_epoch, self.n_epochs):
             train_log = self._train_epoch(epoch)
             validate_log = self._validate_epoch(epoch)
-
-            self._update_p_bar(e_bar, train_log, validate_log)
-            self._check_and_save_best_model(train_log, validate_log)
-            if epoch % self.save_after_epoch == 0 and epoch != 0:
-                self._save_check_point(epoch)
-        e_bar.close()
-        self.best_model['name'] = self.params['name']
-        return self.best_model
+            if self.is_rank_0:
+                self._update_p_bar(e_bar, train_log, validate_log)
+                self._check_and_save_best_model(train_log, validate_log)
+                if epoch % self.save_after_epoch == 0 and epoch != 0:
+                    self._save_check_point(epoch)
+        if self.is_rank_0:
+            e_bar.close()
+            self.best_model['name'] = self.params['name']
+            return self.best_model
 
     def _train_epoch(self, epoch: int) -> Dict:
         self.model.train()
-        p_bar = tqdm.tqdm(
-                desc='Training batch: ', total=self.n_train_batches, unit='batch')
+        p_bar = None
+        if self.is_rank_0:
+            n_train_batches = self.n_train_batches * abs(self.world_size)
+            p_bar = tqdm.tqdm(desc='Training batch: ', total=n_train_batches, unit='batch')
 
         epoch_stats = None
         for batch_idx, data in enumerate(self.data_loader.train):
             batch_stat = self._train_step(data, batch_idx, epoch, p_bar)
             epoch_stats = self._update_stats(epoch_stats, batch_stat)
-        p_bar.close()
 
-        self._normalize_stats(self.n_train_batches, epoch_stats)
-        self._log_epoch('train/epoch/', epoch_stats)
+        if self.is_rank_0:
+            p_bar.close()
+            self._normalize_stats(self.n_train_batches, epoch_stats)
+            self._log_epoch('train/epoch/', epoch_stats)
 
         return epoch_stats
 
     def _train_step(self, minibatch: Any, batch_idx: int, epoch: int, p_bar):
         stats = self.model.train_step(minibatch, self.optimizer, self.global_step, scheduler=self.schedulers)
+        if self.world_size != -1:
+            self._average_across_nodes(stats, self.world_size)
         self.tensor_2_item(stats)
-        self._log_train_step(epoch, batch_idx, stats)
-        p_bar.set_postfix_str("loss: {:4.8g}".format(stats['loss']))
-        p_bar.update()
+        if self.is_rank_0:
+            self._log_train_step(epoch, batch_idx, stats)
+            p_bar.set_postfix_str("loss: {:4.8g}".format(stats['loss']))
+            p_bar.update(abs(self.world_size))
         self.global_step += 1
         return stats
 
     def _validate_epoch(self, epoch: int) -> Dict:
         self.model.eval()
         with torch.no_grad():
-            p_bar = tqdm.tqdm(
-                    desc="Validation batch: ",
-                    total=self.n_validate_batches,
-                    unit="batch")
+            p_bar = None
+            if self.is_rank_0:
+                p_bar = tqdm.tqdm(
+                        desc="Validation batch: ",
+                        total=self.n_validate_batches,
+                        unit="batch")
 
             epoch_stats = None
             for batch_idx, data in enumerate(self.data_loader.validate):
                 batch_stat = self._validate_step(data, batch_idx, epoch, p_bar)
                 epoch_stats = self._update_stats(epoch_stats, batch_stat)
-            p_bar.close()
-
-            self._normalize_stats(self.n_validate_batches, epoch_stats)
-            self._log_epoch('validate/epoch/', epoch_stats)
+            if self.is_rank_0:
+                p_bar.close()
+                self._normalize_stats(self.n_validate_batches, epoch_stats)
+                self._log_epoch('validate/epoch/', epoch_stats)
 
         return epoch_stats
 
@@ -143,10 +176,13 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
 
     def _validate_step(self, minibatch: Any, batch_idx: int, epoch: int, p_bar):
         stats = self.model.validate_step(minibatch)
+        if self.world_size > 1:
+            stats = self._average_across_nodes(stats, self.world_size)
         self.tensor_2_item(stats)
-        self._log_validation_step(epoch, batch_idx, stats)
-        p_bar.set_postfix_str("loss: {:4.8g}".format(stats['loss']))
-        p_bar.update()
+        if self.is_rank_0:
+            self._log_validation_step(epoch, batch_idx, stats)
+            p_bar.set_postfix_str("loss: {:4.8g}".format(stats['loss']))
+            p_bar.update()
         return stats
 
     @staticmethod
@@ -165,6 +201,14 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
                 statistics[k] /= n_batches
         return statistics
 
+    @staticmethod
+    def _average_across_nodes(statistics, world_size):
+        for k, v in statistics.items():
+            if is_primitive(v):
+                dist.recv(v, dist.ReduceOp.SUM)
+                statistics[k] = v / world_size
+        return statistics
+
     def _log_epoch(self, log_label, statistics):
         for k, v in statistics.items():
             if is_primitive(v):
@@ -175,7 +219,8 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
                 self.summary.add_figure(log_label + k, figure=v, global_step=self.global_step)
 
     def __del__(self):
-        self.summary.close()
+        if self.is_rank_0:
+            self.summary.close()
 
     def _prepare_dirs(self) -> None:
         trainer_par = self.params['trainer']
@@ -213,10 +258,10 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         torch.save(state, file_name)
 
     def _save_model_parameters(self, file_name):
-        '''
+        """
         Args:
             file_name:
-        '''
+        """
         with open(file_name, 'w') as f:
             json.dump(self.params, f, indent=4)
 

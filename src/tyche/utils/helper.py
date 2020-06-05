@@ -7,6 +7,7 @@ import copy
 import itertools
 from functools import reduce
 from importlib import import_module
+from logging import Logger
 from typing import List
 
 import numpy as np
@@ -86,10 +87,11 @@ def create_cost_function(name, *args):
     return instance
 
 
-def load_params(path):
+def load_params(path: str, logger: Logger) -> dict:
     """Loads experiment parameters from json file.
 
     :param path: to the json file
+    :param logger:
     :returns: param needed for the experiment
     :rtype: dictionary
 
@@ -99,10 +101,7 @@ def load_params(path):
             params = yaml.full_load(f)
         return params
     except Exception as e:
-        print(e)
-        with open(path, "r") as f:
-            params = yaml.full_load(f, encoding='utf-8')
-        return params
+        logger.error(e)
 
 
 def to_one_hot(labels, num_classes):
@@ -309,6 +308,7 @@ def gumbel_softmax(pi, tau, device):
     y_hard.scatter_(1, ind.view(-1, 1), 1)
     y_hard = y_hard.view(*shape)
     return (y_hard - y).detach() + y
+
 
 def gumbel_softmax_argmax(pi, tau, device):
     """
