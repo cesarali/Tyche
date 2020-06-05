@@ -231,7 +231,13 @@ def get_cuda(tensor):
     return tensor
 
 
-def get_device(params, logger=None):
+def get_device(params: dict, rank: int = 0, logger: Logger = None) -> torch.device:
+    """
+
+    :param params:
+    :param logger:
+    :return: returns the device
+    """
     gpus = params.get("gpus", [])
     if len(gpus) > 0:
         if not torch.cuda.is_available():
@@ -239,7 +245,7 @@ def get_device(params, logger=None):
                 logger.warning("No GPU's available. Using CPU.")
             device = torch.device("cpu")
         else:
-            device = torch.device("cuda:" + str(gpus[0]))
+            device = torch.device("cuda:" + str(gpus[rank]))
     else:
         device = torch.device("cpu")
     return device
