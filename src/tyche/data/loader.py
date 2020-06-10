@@ -1,29 +1,25 @@
 import pickle as pickle
-import spacy
-import torch
-import torch.nn.functional as F
-from abc import ABC
+from abc import ABC, abstractmethod
 from collections import Counter
 from functools import partial
-from typing import Tuple
 from unittest.mock import Mock
 
-import numpy as np
 import spacy
 import torch
 import torch.nn.functional as F
-from sklearn.preprocessing import StandardScaler
 from torch.utils.data.dataloader import DataLoader
-from torch.utils.data.dataset import TensorDataset
 from torch.utils.data.dataset import random_split
 from torchtext.data.iterator import BucketIterator
 from torchtext.datasets import text_classification
 from torchtext.utils import download_from_url, extract_archive
 from torchtext.vocab import Vocab
 from tqdm import tqdm
+
 from tyche import data
 from tyche.data import datasets
-from unittest.mock import Mock
+
+sampler = torch.utils.data.RandomSampler
+DistributedSampler = torch.utils.data.distributed.DistributedSampler
 
 spacy_en = spacy.load('en_core_web_sm')
 
@@ -69,7 +65,7 @@ def tokenizer_ptb(x, punct=True):
 
 
 class ADataLoader(ABC):
-    def __init__(self, device, **kwargs):
+    def __init__(self, device, rank: int = 0, world_size: int = -1, **kwargs):
         self.device = device
         self.batch_size = kwargs.pop('batch_size')
         self.path_to_vectors = kwargs.pop('path_to_vectors', None)
@@ -82,30 +78,32 @@ class ADataLoader(ABC):
         self.lower = kwargs.pop('lower', False)
         self.punctuation = kwargs.pop('punctuation', True)
         self.dataset_kwargs = kwargs
+        self.world_size = world_size
+        self.rank = rank
 
     @property
-    def train(self):
-        pass
+    @abstractmethod
+    def train(self): ...
 
     @property
-    def validate(self):
-        pass
+    @abstractmethod
+    def validate(self): ...
 
     @property
-    def test(self):
-        pass
+    @abstractmethod
+    def test(self): ...
 
     @property
     def n_train_batches(self):
-        return len(self.train)
+        return len(self.train) // abs(self.world_size)
 
     @property
     def n_validate_batches(self):
-        return len(self.validate)
+        return len(self.validate) // abs(self.world_size)
 
     @property
     def n_test_batches(self):
-        return len(self.test)
+        return len(self.test) // abs(self.world_size)
 
     @property
     def train_set_size(self):
@@ -148,12 +146,12 @@ class DataLoaderPTB(ADataLoader):
 
         if self.path_to_sample is None:
             self._train_iter, self._valid_iter, self._test_iter = BucketIterator.splits(
-                (train, valid, test),
-                batch_sizes=(self.batch_size, self.batch_size, self.batch_size),
-                sort_key=lambda x: len(x.text),
-                sort_within_batch=True,
-                repeat=False,
-                device=self.device
+                    (train, valid, test),
+                    batch_sizes=(self.batch_size, self.batch_size, self.batch_size),
+                    sort_key=lambda x: len(x.text),
+                    sort_within_batch=True,
+                    repeat=False,
+                    device=self.device
             )
         else:
             # train model on generated samples
@@ -164,12 +162,12 @@ class DataLoaderPTB(ADataLoader):
                 sample.examples = [x for x in sample.examples if len(x.text) <= self.max_len]
 
             self._train_iter, self._valid_iter, self._test_iter = BucketIterator.splits(
-                (sample, valid, test),
-                batch_sizes=(self.batch_size, self.batch_size, self.batch_size),
-                sort_key=lambda x: len(x.text),
-                sort_within_batch=True,
-                repeat=False,
-                device=self.device
+                    (sample, valid, test),
+                    batch_sizes=(self.batch_size, self.batch_size, self.batch_size),
+                    sort_key=lambda x: len(x.text),
+                    sort_within_batch=True,
+                    repeat=False,
+                    device=self.device
             )
 
     @property
@@ -260,9 +258,9 @@ class DataLoaderWiki2(ADataLoader):
 
 
 class DataLoaderWiki103(ADataLoader):
-    def __init__(self, device, **kwargs):
+    def __init__(self, device, rank: int = 0, world_size=-1, **kwargs):
         path_to_data = kwargs.pop('path_to_data')
-        super().__init__(device, **kwargs)
+        super().__init__(device, rank, world_size, **kwargs)
 
         # Defining fields
         TEXT = data.ReversibleField(init_token='<sos>', eos_token='<eos>',
@@ -275,12 +273,17 @@ class DataLoaderWiki103(ADataLoader):
 
         if self._fix_length == -1:
             TEXT.fix_length = max([train.max_len, valid.max_len, test.max_len])
+        if self.world_size != -1:
+            train_sampler = DistributedSampler(train, self.world_size, self.rank)
+            valid_sampler = DistributedSampler(valid, self.world_size, self.rank)
+            test_sampler = DistributedSampler(test, self.world_size, self.rank)
 
         self._train_iter, self._valid_iter, self._test_iter = BucketIterator.splits(
                 (train, valid, test),
                 batch_sizes=(self.batch_size, self.batch_size, len(test)),
                 sort_key=lambda x: len(x.text),
                 sort_within_batch=True,
+
                 repeat=False,
                 device=self.device
         )
@@ -761,13 +764,13 @@ class DataLoaderYelp15(ADataLoader):
             print("training over samples")
             self.add_zero_label_to_sentences()
             list_sample_data, list_sample_labels = self.create_data_from_textfile(vocab, self.path_to_sample,
-                                                                                include_unk=True)
+                                                                                  include_unk=True)
             sample = text_classification.TextClassificationDataset(vocab, list_sample_data, list_sample_labels)
             self._train_iter = DataLoader(sample, batch_size=self.batch_size, shuffle=True,
                                           collate_fn=self.generate_batch)
         else:
             self._train_iter = DataLoader(train, batch_size=self.batch_size, shuffle=True,
-                                      collate_fn=self.generate_batch)
+                                          collate_fn=self.generate_batch)
 
         self._valid_iter = DataLoader(valid, batch_size=self.batch_size, shuffle=True,
                                       collate_fn=self.generate_batch)
