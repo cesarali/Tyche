@@ -84,15 +84,15 @@ class ADataLoader(ABC):
 
     @property
     def n_train_batches(self):
-        return len(self.train) // abs(self.world_size)
+        return len(self.train.dataset) // self.batch_size // abs(self.world_size)
 
     @property
     def n_validate_batches(self):
-        return len(self.validate) // abs(self.world_size)
+        return len(self.validate.dataset) // self.batch_size // abs(self.world_size)
 
     @property
     def n_test_batches(self):
-        return len(self.test) // abs(self.world_size)
+        return len(self.test.dataset) // self.batch_size // abs(self.world_size)
 
     @property
     def train_set_size(self):
