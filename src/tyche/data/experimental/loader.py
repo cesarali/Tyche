@@ -212,8 +212,14 @@ class DataLoaderWiki103(ADataLoader):
     def __init__(self, device, rank: int = 0, world_size=-1, **kwargs):
         path_to_data = kwargs.pop('path_to_data')
         super().__init__(device, rank, world_size, **kwargs)
+        path_to_vectors = kwargs.pop('path_to_vectors')
+        emb_dim = kwargs.pop('emb_dim')
+        voc_size = kwargs.pop('voc_size')
+        min_freq = kwargs.pop('min_freq')
+        fix_len = kwargs.pop('fix_len')
 
-        train_dataset, test_dataset, valid_dataset = WikiText103(root=path_to_data, tokenizer=tokenizer)
+        train_dataset, test_dataset, valid_dataset = WikiText103(root=path_to_data, tokenizer=tokenizer, path_to_vectors=path_to_vectors, emb_dim=emb_dim,
+                                                                 voc_size=voc_size, min_freq=min_freq, fix_len=fix_len)
 
         if self.world_size != -1:
             train_sampler = DistributedSampler(train_dataset, self.world_size, self.rank)
