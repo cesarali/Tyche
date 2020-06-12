@@ -16,14 +16,16 @@ class MyTestCase(unittest.TestCase):
         dl = DataLoaderWiki2('cpu', path_to_data='./data/', batch_size=32, path_to_vectors='./data', emb_dim='glove.6B.100d', voc_size=2000, min_freq=1,
                              fix_len=20)
         for batch in islice(dl.train, 3):
-            self.assertEqual(batch.size(), (32, 22))
+            self.assertEqual(batch[0].size(), (32, 22))
+            self.assertEqual(batch[1].size(), (32,))
 
     def test_ptb_dataloader(self):
         dl = DataLoaderPTB('cpu', path_to_data='./data/', batch_size=32, path_to_vectors='./data',
                            emb_dim='glove.6B.100d', voc_size=2000, min_freq=1,
                            fix_len=20)
         for batch in islice(dl.train, 3):
-            self.assertEqual(batch.size(), (32, 22))
+            self.assertEqual(batch[0].size(), (32, 22))
+            self.assertEqual(batch[1].size(), (32,))
 
 
 if __name__ == '__main__':

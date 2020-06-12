@@ -5,7 +5,6 @@ from collections import Counter
 import torch
 from torchtext.data.functional import numericalize_tokens_from_iterator
 from torchtext.data.utils import get_tokenizer
-from torchtext.experimental.datasets import LanguageModelingDataset
 from torchtext.utils import download_from_url, extract_archive
 from torchtext.vocab import Vocab
 from tqdm import tqdm
@@ -20,6 +19,83 @@ URLS = {
          'https://raw.githubusercontent.com/wojzaremba/lstm/master/data/ptb.test.txt',
          'https://raw.githubusercontent.com/wojzaremba/lstm/master/data/ptb.valid.txt']
 }
+
+PAD = 1
+SOS = 2
+EOS = 3
+
+
+class LanguageModelingDataset(torch.utils.data.Dataset):
+    """Defines a dataset for language modeling.
+       Currently, we only support the following datasets:
+
+             - WikiText2
+             - WikiText103
+             - PennTreebank
+
+    """
+
+    def __init__(self, data, vocab):
+        """Initiate language modeling dataset.
+
+        Arguments:
+            data: a tensor of tokens. tokens are ids after
+                numericalizing the string tokens.
+                torch.tensor([token_id_1, token_id_2, token_id_3, token_id1]).long()
+            vocab: Vocabulary object used for dataset.
+
+        Examples:
+            >>> from torchtext.vocab import build_vocab_from_iterator
+            >>> data = torch.tensor([token_id_1, token_id_2,
+                                     token_id_3, token_id_1]).long()
+            >>> vocab = build_vocab_from_iterator([['language', 'modeling']])
+            >>> dataset = LanguageModelingDataset(data, vocab)
+
+        """
+
+        super(LanguageModelingDataset, self).__init__()
+        self.data = data
+        self.vocab = vocab
+
+        self.PAD = '<pad>'
+        self.SOS = '<sos>'
+        self.EOS = '<eos>'
+
+    def __getitem__(self, i):
+        return self.data[0][i], self.data[1][i]
+
+    def __len__(self):
+        return len(self.data[0])
+
+    def __iter__(self):
+        for i in range(self.__len__()):
+            yield self.data[0][i], self.data[1][i]
+
+    def get_vocab(self):
+        return self.vocab
+
+    def reverse(self, batch):
+
+        with torch.cuda.device_of(batch):
+            batch = batch.tolist()
+        batch = [[self.vocab.itos[ind] for ind in ex] for ex in batch]  # denumericalize
+
+        def trim(s, t):
+            sentence = []
+            for w in s:
+                if w == t:
+                    break
+                sentence.append(w)
+            return sentence
+
+        batch = [trim(ex, self.EOS) for ex in batch]  # trim past frst eos
+
+        def filter_special(tok):
+            return tok not in (self.SOS, self.PAD)
+
+        batch = [filter(filter_special, ex) for ex in batch]
+
+        return [' '.join(ex) for ex in batch]
 
 
 def _get_datafile_path(key, extracted_files):
@@ -81,8 +157,10 @@ def _setup_datasets(dataset_name, emb_dim, voc_size, fix_len, path_to_vectors=No
             raise TypeError("Passed vocabulary is not of type Vocab")
 
     data = {}
+
     for item in _path.keys():
-        data[item] = []
+        tmp_tokens = []
+        tmp_len = []
         logging.info('Creating {} data'.format(item))
         txt_iter = iter(tokenizer(row) for row in io.open(_path[item],
                                                           encoding="utf8"))
@@ -92,18 +170,21 @@ def _setup_datasets(dataset_name, emb_dim, voc_size, fix_len, path_to_vectors=No
             size = len(tokens_)
             if size == 0 or tokens_.count(vocab['=']) >= 2:
                 continue
-            if size > fix_len:
-                tokens_ = [2] + tokens_[:fix_len] + [3]
+
+            if size > fix_len - 2:
+                tokens_ = [SOS] + tokens_[:fix_len - 2] + [EOS]
+                size = fix_len
             else:
-                tokens_ = [2] + tokens_ + [3] + [1] * (fix_len - size)
+                tokens_ = [SOS] + tokens_ + [EOS] + [PAD] * (fix_len - size - 2)
 
-            data[item].append(tokens_)
-
+            tmp_tokens.append(tokens_)
+            tmp_len.append(size)
+        data[item] = (tmp_tokens, tmp_len)
     for key in data_select:
         if not data[key]:
             raise TypeError('Dataset {} is empty!'.format(key))
 
-    return tuple(LanguageModelingDataset(torch.tensor(data[d]).long(), vocab)
+    return tuple(LanguageModelingDataset((torch.tensor(data[d][0]).long(), torch.tensor(data[d][1])), vocab)
                  for d in data_select)
 
 
