@@ -138,7 +138,9 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         self.model.eval()
         with torch.no_grad():
             p_bar = None
+
             if self.is_rank_0:
+                n_validate_batches = self.n_validate_batches * abs(self.world_size)
                 p_bar = tqdm.tqdm(
                         desc="Validation batch: ",
                         total=self.n_validate_batches,
