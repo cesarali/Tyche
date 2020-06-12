@@ -182,7 +182,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         if self.is_rank_0:
             self._log_validation_step(epoch, batch_idx, stats)
             p_bar.set_postfix_str("loss: {:4.8g}".format(stats['loss']))
-            p_bar.update()
+            p_bar.update(abs(self.world_size))
         return stats
 
     @staticmethod
