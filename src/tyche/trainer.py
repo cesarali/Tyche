@@ -143,7 +143,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
                 n_validate_batches = self.n_validate_batches * abs(self.world_size)
                 p_bar = tqdm.tqdm(
                         desc="Validation batch: ",
-                        total=self.n_validate_batches,
+                        total=n_validate_batches,
                         unit="batch")
 
             epoch_stats = None
