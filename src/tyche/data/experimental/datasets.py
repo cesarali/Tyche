@@ -1,5 +1,6 @@
 import io
 import logging
+import os
 from collections import Counter
 
 import torch
@@ -133,11 +134,24 @@ def _setup_datasets(dataset_name, emb_dim, voc_size, fix_len, path_to_vectors=No
 
     if dataset_name == 'PennTreebank':
         extracted_files = []
+
         select_to_index = {'train': 0, 'test': 1, 'valid': 2}
-        extracted_files = [download_from_url(URLS['PennTreebank'][select_to_index[key]],
-                                             root=root) for key in data_select]
+        for key in data_select:
+
+            url_ = URLS['PennTreebank'][select_to_index[key]]
+            _, filename = os.path.split(url_)
+            path_ = os.path.join(root, filename)
+            if os.path.exists(path_):
+                extracted_files.append(path_)
+            else:
+                extracted_files.append(download_from_url(url_, root=root))
+
     else:
-        dataset_tar = download_from_url(URLS[dataset_name], root=root)
+        url_ = URLS[dataset_name]
+        _, filename = os.path.split(url_)
+        dataset_tar = os.path.join(root, filename)
+        if not os.path.exists(dataset_tar):
+            dataset_tar = download_from_url(url_, root=root)
         extracted_files = extract_archive(dataset_tar)
 
     _path = {}
