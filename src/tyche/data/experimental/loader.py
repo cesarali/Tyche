@@ -111,13 +111,15 @@ class DataLoaderPTB(ADataLoader):
         emb_dim = kwargs.pop('emb_dim')
         voc_size = kwargs.pop('voc_size')
         min_freq = kwargs.pop('min_freq')
+        min_len = kwargs.pop('min_len')
         fix_len = kwargs.pop('fix_len')
         train_dataset, test_dataset, valid_dataset = PennTreebank(root=path_to_data, tokenizer=tokenizer,
                                                                   path_to_vectors=path_to_vectors,
                                                                   emb_dim=emb_dim,
                                                                   voc_size=voc_size,
                                                                   min_freq=min_freq,
-                                                                  fix_len=fix_len)
+                                                                  fix_len=fix_len,
+                                                                  min_len=min_len)
 
         train_sampler = None
         valid_sampler = None
@@ -165,11 +167,13 @@ class DataLoaderWiki2(ADataLoader):
         voc_size = kwargs.pop('voc_size')
         min_freq = kwargs.pop('min_freq')
         fix_len = kwargs.pop('fix_len')
+        min_len = kwargs.pop('min_len')
         train_dataset, test_dataset, valid_dataset = WikiText2(root=path_to_data, tokenizer=tokenizer, path_to_vectors=path_to_vectors,
                                                                emb_dim=emb_dim,
                                                                voc_size=voc_size,
                                                                min_freq=min_freq,
-                                                               fix_len=fix_len)
+                                                               fix_len=fix_len,
+                                                               min_len=min_len)
 
         train_sampler = None
         valid_sampler = None
@@ -217,9 +221,10 @@ class DataLoaderWiki103(ADataLoader):
         voc_size = kwargs.pop('voc_size')
         min_freq = kwargs.pop('min_freq')
         fix_len = kwargs.pop('fix_len')
+        min_len = kwargs.pop('min_len')
 
         train_dataset, test_dataset, valid_dataset = WikiText103(root=path_to_data, tokenizer=tokenizer, path_to_vectors=path_to_vectors, emb_dim=emb_dim,
-                                                                 voc_size=voc_size, min_freq=min_freq, fix_len=fix_len)
+                                                                 voc_size=voc_size, min_freq=min_freq, fix_len=fix_len, min_len=min_len)
 
         if self.world_size != -1:
             train_sampler = DistributedSampler(train_dataset, self.world_size, self.rank)

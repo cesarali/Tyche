@@ -123,7 +123,7 @@ def build_vocab_from_iterator(iterator, emb_dim, voc_size, min_freq, path_to_vec
     return word_vocab
 
 
-def _setup_datasets(dataset_name, emb_dim, voc_size, fix_len, path_to_vectors=None, min_freq=1,
+def _setup_datasets(dataset_name, emb_dim, voc_size, fix_len, min_len=0, path_to_vectors=None, min_freq=1,
                     tokenizer=get_tokenizer("basic_english"),
                     root='.data', vocab=None, removed_tokens=[],
                     data_select=('train', 'test', 'valid'), ):
@@ -182,7 +182,7 @@ def _setup_datasets(dataset_name, emb_dim, voc_size, fix_len, path_to_vectors=No
         for tokens in tqdm(_iter, unit='data point', desc=f'Preparing {item} dataset'):
             tokens_ = [token_id for token_id in tokens]
             size = len(tokens_)
-            if size == 0 or tokens_.count(vocab['=']) >= 2:
+            if size <= min_len or tokens_.count(vocab['=']) >= 2:
                 continue
 
             if size > fix_len - 2:
