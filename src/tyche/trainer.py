@@ -3,6 +3,7 @@ import json
 import logging
 import os
 from abc import ABCMeta
+from collections import ChainMap
 from typing import Any
 from typing import Dict
 
@@ -58,7 +59,9 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         self.batch_size = self.params['data_loader']['args']['batch_size']
         self.bm_metric = self.params['trainer']['args']['bm_metric']
 
-        if "schedulers" in self.params['trainer']['args']:
+        self.lr_schedulers = self.__init_lr_schedulers()
+
+        if 'schedulers' in self.params['trainer']['args']:
             self.schedulers = dict()
             schedulers_ = create_instance('schedulers', self.params['trainer']['args'])
             if type(schedulers_) is not list:
@@ -82,6 +85,19 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         if resume:
             self._resume_check_point(resume)
 
+    def __init_lr_schedulers(self):
+        lr_schedulers = self.params['trainer']['args'].get('lr_schedulers', None)
+        if lr_schedulers is None:
+            return None
+        schedulers = dict()
+        lr_schedulers = ChainMap(*lr_schedulers)
+        for opt_name, scheduler in lr_schedulers.items():
+            opt_scheduler = create_instance(opt_name, lr_schedulers, self.optimizer[opt_name]['opt'])
+            schedulers[opt_name] = {'counter': scheduler.get('counter'),
+                                    'default_counter': scheduler.get('counter'),
+                                    'scheduler': opt_scheduler}
+        return schedulers
+
     def train(self):
         if self.is_rank_0:
             e_bar = tqdm.tqdm(
@@ -93,6 +109,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         for epoch in range(self.start_epoch, self.n_epochs):
             train_log = self._train_epoch(epoch)
             validate_log = self._validate_epoch(epoch)
+            self._anneal_lr(validate_log)
             if self.is_rank_0:
                 self._update_p_bar(e_bar, train_log, validate_log)
                 self._check_and_save_best_model(train_log, validate_log)
@@ -101,7 +118,18 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         if self.is_rank_0:
             e_bar.close()
             self.best_model['name'] = self.params['name']
+            self.summary.flush()
+            self.summary.close()
             return self.best_model
+
+    def _anneal_lr(self, validate_log):
+        if validate_log[self.bm_metric] > self.best_model['val_metric']:
+            for key, value in self.lr_schedulers.items():
+                if value['counter'] > 0:
+                    value['counter'] -= 1
+                else:
+                    value['scheduler'].step()
+                    value['counter'] = value['default_counter']
 
     def _train_epoch(self, epoch: int) -> Dict:
         self.model.train()
@@ -220,10 +248,6 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
             elif isinstance(v, matplotlib.figure.Figure):
                 self.summary.add_figure(log_label + k, figure=v, global_step=self.global_step)
 
-    def __del__(self):
-        if self.is_rank_0:
-            self.summary.close()
-
     def _prepare_dirs(self) -> None:
         trainer_par = self.params['trainer']
         start_time = datetime.datetime.now().strftime('%d%m_%H%M%S')
@@ -255,7 +279,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
             'params': self.params
         }
         for key in self.optimizer:
-            state[key] = self.optimizer[key].state_dict()
+            state[key] = self.optimizer[key]['opt'].state_dict()
 
         torch.save(state, file_name)
 

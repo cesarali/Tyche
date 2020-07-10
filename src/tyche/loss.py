@@ -2,6 +2,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn as nn
 from torch.nn.modules.loss import CrossEntropyLoss, _Loss
+import math
 
 from tyche.utils import param_scheduler as p_scheduler
 
@@ -14,6 +15,24 @@ def kullback_leibler(mean, sigma, reduction='mean'):
     """
 
     kl = -0.5 * (1 + 2.0 * torch.log(sigma) - mean * mean - sigma * sigma)  # [B, D]
+    skl = torch.sum(kl, dim=1)
+    if reduction == 'mean':
+        return torch.mean(skl)
+    elif reduction == 'sum':
+        return torch.sum(skl)
+    else:
+        return skl
+
+
+def mim_reg(mean, sigma, reduction='mean'):
+    """
+    Kullback-Leibler divergence between Gaussian posterior distr.
+    with parameters (mean, sigma) and a fixed Gaussian prior
+    with mean = 0 and sigma = 1
+    """
+
+    D = mean.size(-1)
+    kl = -0.5 * (1 + 2.0 * torch.log(sigma) + mean * mean + sigma * sigma) - (D * torch.log(torch.tensor(2 * math.pi)))  # [B, D]
     skl = torch.sum(kl, dim=1)
     if reduction == 'mean':
         return torch.mean(skl)

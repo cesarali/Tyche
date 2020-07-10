@@ -15,6 +15,7 @@ import torch as to
 import torch as torch
 import yaml
 from scipy import linalg as la
+import json
 
 
 def create_class_instance(module_name, class_name, kwargs, *args):
@@ -102,6 +103,17 @@ def load_params(path: str, logger: Logger) -> dict:
         return params
     except Exception as e:
         logger.error(e)
+
+
+def save_dict_to_file(obj: dict, path: str):
+    """Save dictionary to a file
+
+    :param obj: dict that is stored,
+    :param path: to the location where the dictionary is stored.
+
+    """
+    with open(path, 'w') as f:
+        json.dump(obj, f)
 
 
 def to_one_hot(labels, num_classes):

@@ -37,7 +37,7 @@ class LinearScheduler(object):
 
 class ConstantScheduler(object):
     def __init__(self, **kwargs):
-        self.beta = kwargs.get('beta', 1000)
+        self.beta = kwargs.get('beta', 1.0)
 
     def __call__(self, step):
         return self.beta
