@@ -254,12 +254,9 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         name = self.params['name']
         if len(name) > 200:
             name = "_".join([i if i.isdigit() else i[0:3] for i in name.split('_')])
-        self.checkpoint_dir = os.path.join(trainer_par['save_dir'],
-                                           name, start_time)
-        self.logging_dir = os.path.join(trainer_par['logging']['logging_dir'],
-                                        name, start_time)
-        self.tensorboard_dir = os.path.join(trainer_par['logging']['tensorboard_dir'],
-                                            name, start_time)
+        self.checkpoint_dir = os.path.join(trainer_par['save_dir'], name, start_time)
+        self.logging_dir = os.path.join(trainer_par['logging']['logging_dir'], name, start_time)
+        self.tensorboard_dir = os.path.join(trainer_par['logging']['tensorboard_dir'], name, start_time)
 
         os.makedirs(self.logging_dir, exist_ok=True)
         os.makedirs(self.checkpoint_dir, exist_ok=True)

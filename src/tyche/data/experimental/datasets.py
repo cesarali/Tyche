@@ -1,8 +1,9 @@
 import io
 import logging
 import os
-from collections import Counter
+from collections import Counter, defaultdict
 
+import numpy as np
 import torch
 from torchtext.data.functional import numericalize_tokens_from_iterator
 from torchtext.data.utils import get_tokenizer
@@ -63,14 +64,18 @@ class LanguageModelingDataset(torch.utils.data.Dataset):
         self.EOS = '<eos>'
 
     def __getitem__(self, i):
-        return self.data[0][i], self.data[1][i]
+        return {'input': np.asarray(self.data[i]['input']),
+                'target': np.asarray(self.data[i]['target']),
+                'length': np.asarray(self.data[i]['length'])}
 
     def __len__(self):
-        return len(self.data[0])
+        return len(self.data)
 
     def __iter__(self):
         for i in range(self.__len__()):
-            yield self.data[0][i], self.data[1][i]
+            yield {'input': np.asarray(self.data[i]['input']),
+                   'target': np.asarray(self.data[i]['target']),
+                   'length': np.asarray(self.data[i]['length'])}
 
     def get_vocab(self):
         return self.vocab
@@ -170,36 +175,37 @@ def _setup_datasets(dataset_name, emb_dim, voc_size, fix_len, min_len=0, path_to
         if not isinstance(vocab, Vocab):
             raise TypeError("Passed vocabulary is not of type Vocab")
 
-    data = {}
+    data = dict()
 
     for item in _path.keys():
-        tmp_tokens = []
-        tmp_len = []
+        data_set = defaultdict(dict)
         logging.info('Creating {} data'.format(item))
-        txt_iter = iter(tokenizer(row) for row in io.open(_path[item],
-                                                          encoding="utf8"))
+        txt_iter = iter(tokenizer(row) for row in io.open(_path[item], encoding="utf8"))
         _iter = numericalize_tokens_from_iterator(vocab, txt_iter, removed_tokens)
+        id = 0
         for tokens in tqdm(_iter, unit='data point', desc=f'Preparing {item} dataset'):
             tokens_ = [token_id for token_id in tokens]
             size = len(tokens_)
             if size <= min_len or tokens_.count(vocab['=']) >= 2:
                 continue
 
-            if size > fix_len - 2:
-                tokens_ = [SOS] + tokens_[:fix_len - 2] + [EOS]
-                size = fix_len
-            else:
-                tokens_ = [SOS] + tokens_ + [EOS] + [PAD] * (fix_len - size - 2)
+            tokens_ = [SOS] + tokens_[:fix_len - 1] + [EOS]
+            input_ = tokens_[:-1]
+            target_ = tokens_[1:]
+            assert len(input_) == len(target_)
+            size = len(input_)
 
-            tmp_tokens.append(tokens_)
-            tmp_len.append(size)
-        data[item] = (tmp_tokens, tmp_len)
+            data_set[id]['input'] = input_ + [PAD] * (fix_len - size)
+            data_set[id]['target'] = target_ + [PAD] * (fix_len - size)
+            data_set[id]['length'] = size
+
+            id += 1
+        data[item] = data_set
     for key in data_select:
         if not data[key]:
             raise TypeError('Dataset {} is empty!'.format(key))
 
-    return tuple(LanguageModelingDataset((torch.tensor(data[d][0]).long(), torch.tensor(data[d][1])), vocab)
-                 for d in data_select)
+    return tuple(LanguageModelingDataset(data[d], vocab) for d in data_select)
 
 
 def WikiText2(*args, **kwargs):
