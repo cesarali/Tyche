@@ -32,14 +32,14 @@ def mim_reg(mean, sigma, reduction='mean'):
     """
 
     D = mean.size(-1)
-    kl = -0.5 * (1 + 2.0 * torch.log(sigma) + mean * mean + sigma * sigma) - (D * torch.log(torch.tensor(2 * math.pi)))  # [B, D]
-    skl = torch.sum(kl, dim=1)
+    dist = 0.25 * (1 + 2.0 * torch.log(sigma) + mean * mean + sigma * sigma)  # [B, D]
+    s_dist = torch.sum(dist, dim=1) + 0.5 * D * torch.log(torch.tensor(2 * math.pi))
     if reduction == 'mean':
-        return torch.mean(skl)
+        return torch.mean(s_dist)
     elif reduction == 'sum':
-        return torch.sum(skl)
+        return torch.sum(s_dist)
     else:
-        return skl
+        return s_dist
 
 
 class ELBO(CrossEntropyLoss):
@@ -189,7 +189,7 @@ class GumbelLoss(CrossEntropyLoss):
         if beta_scheduler is None:
             self.b_scheduler = p_scheduler.ConstantScheduler()
         else:
-            self.b_scheduler = beta_scheduler
+            self.b_scheduler = beta_schedulerw
 
     def forward(self, input, target, softmax, mean, sigma, step, epsilon=1e-20):
 

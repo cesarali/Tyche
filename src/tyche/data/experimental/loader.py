@@ -11,7 +11,7 @@ sampler = torch.utils.data.RandomSampler
 DistributedSampler = torch.utils.data.distributed.DistributedSampler
 
 spacy_en = spacy.load('en_core_web_sm')
-tokenizer = get_tokenizer("spacy")
+# tokenizer = get_tokenizer("spacy")
 URLS = {
     'AG_NEWS':
         'https://drive.google.com/uc?export=download&id=0Bz8a_Dbh9QhbUDNpeUdjb0wxRms',

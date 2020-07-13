@@ -64,8 +64,8 @@ class LanguageModelingDataset(torch.utils.data.Dataset):
         self.EOS = '<eos>'
 
     def __getitem__(self, i):
-        return {'input': np.asarray(self.data[i]['input']),
-                'target': np.asarray(self.data[i]['target']),
+        return {'input': np.asarray(self.data[i]['input'], dtype=np.int64),
+                'target': np.asarray(self.data[i]['target'], dtype=np.int64),
                 'length': np.asarray(self.data[i]['length'])}
 
     def __len__(self):
