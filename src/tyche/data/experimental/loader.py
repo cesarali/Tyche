@@ -6,12 +6,13 @@ from torch.utils.data.dataloader import DataLoader
 from torchtext.data.utils import get_tokenizer
 
 from tyche.data.experimental.datasets import WikiText2, WikiText103, PennTreebank
+from nltk.tokenize import TweetTokenizer
 
 sampler = torch.utils.data.RandomSampler
 DistributedSampler = torch.utils.data.distributed.DistributedSampler
 
-spacy_en = spacy.load('en_core_web_sm')
-# tokenizer = get_tokenizer("spacy")
+# spacy_en = spacy.load('en_core_web_sm')
+tokenizer = TweetTokenizer(preserve_case=False).tokenize
 URLS = {
     'AG_NEWS':
         'https://drive.google.com/uc?export=download&id=0Bz8a_Dbh9QhbUDNpeUdjb0wxRms',
@@ -32,25 +33,26 @@ URLS = {
 }
 
 
-def tokenizer(x, punct=True):
-    """
-    Create a tokenizer function
-    """
-    if punct:
-        return [token.orth_ for token in spacy_en.tokenizer(x) if not token.is_space]
-    else:
-        return [token.orth_ for token in spacy_en.tokenizer(x) if not token.is_punct | token.is_space]
-
-
-def tokenizer_ptb(x, punct=True):
-    """
-    Create a tokenizer function and replaces unk tokens in source textfile
-    """
-    x = x.replace("<unk>", "unk")
-    if punct:
-        return [token.orth_ for token in spacy_en.tokenizer(x) if not token.is_space]
-    else:
-        return [token.orth_ for token in spacy_en.tokenizer(x) if not token.is_punct | token.is_space]
+#
+# def tokenizer(x, punct=True):
+#     """
+#     Create a tokenizer function
+#     """
+#     if punct:
+#         return [token.orth_ for token in spacy_en.tokenizer(x) if not token.is_space]
+#     else:
+#         return [token.orth_ for token in spacy_en.tokenizer(x) if not token.is_punct | token.is_space]
+#
+#
+# def tokenizer_ptb(x, punct=True):
+#     """
+#     Create a tokenizer function and replaces unk tokens in source textfile
+#     """
+#     x = x.replace("<unk>", "unk")
+#     if punct:
+#         return [token.orth_ for token in spacy_en.tokenizer(x) if not token.is_space]
+#     else:
+#         return [token.orth_ for token in spacy_en.tokenizer(x) if not token.is_punct | token.is_space]
 
 
 class ADataLoader(ABC):

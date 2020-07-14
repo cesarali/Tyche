@@ -114,7 +114,7 @@ def build_vocab_from_iterator(iterator, emb_dim, voc_size, min_freq, path_to_vec
     """
     Build a Vocab from an iterator.
 
-    Arguments:
+    Arguments:d
         iterator: Iterator used to build Vocab. Must yield list or iterator of tokens.
     """
 

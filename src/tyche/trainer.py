@@ -74,6 +74,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         self.data_loader = data_loader
         self.n_train_batches = data_loader.n_train_batches
         self.n_validate_batches = data_loader.n_validate_batches
+        self.n_test_batches = data_loader.n_test_batches
 
         self.global_step = 0
         self.best_model = {'train_loss': float('inf'),
@@ -105,13 +106,14 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
                     total=self.n_epochs,
                     unit='epoch',
                     initial=self.start_epoch,
-                    postfix='train loss: -, validation loss: -')
+                    postfix='train loss: -, validation loss: -, test loss:', position=1, leave=True)
         for epoch in range(self.start_epoch, self.n_epochs):
             train_log = self._train_epoch(epoch)
             validate_log = self._validate_epoch(epoch)
+            test_log = self._test_epoch(epoch)
             self._anneal_lr(validate_log)
             if self.is_rank_0:
-                self._update_p_bar(e_bar, train_log, validate_log)
+                self._update_p_bar(e_bar, train_log, validate_log, test_log)
                 self._check_and_save_best_model(train_log, validate_log)
                 if epoch % self.save_after_epoch == 0 and epoch != 0:
                     self._save_check_point(epoch)
@@ -136,7 +138,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         p_bar = None
         if self.is_rank_0:
             n_train_batches = self.n_train_batches * abs(self.world_size)
-            p_bar = tqdm.tqdm(desc='Training batch: ', total=n_train_batches, unit='batch')
+            p_bar = tqdm.tqdm(desc='Training batch: ', total=n_train_batches, unit='batch', position=0, leave=True)
 
         epoch_stats = None
         for batch_idx, data in enumerate(self.data_loader.train):
@@ -157,7 +159,12 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         self.tensor_2_item(stats)
         if self.is_rank_0:
             self._log_train_step(epoch, batch_idx, stats)
-            p_bar.set_postfix_str("loss: {:4.8g}".format(stats['loss']))
+            log_str = ""
+            for key, value in stats.items():
+                if not is_primitive(value):
+                    continue
+                log_str += f"{key}: {value:4.4g} "
+            p_bar.set_postfix_str(log_str)
             p_bar.update(abs(self.world_size))
         self.global_step += 1
         return stats
@@ -172,7 +179,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
                 p_bar = tqdm.tqdm(
                         desc="Validation batch: ",
                         total=n_validate_batches,
-                        unit="batch")
+                        unit="batch", position=0, leave=True)
 
             epoch_stats = None
             for batch_idx, data in enumerate(self.data_loader.validate):
@@ -188,19 +195,23 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
     def _test_epoch(self, epoch: int) -> Dict:
         self.model.eval()
         with torch.no_grad():
-            p_bar = tqdm.tqdm(
-                    desc="Test batch: ",
-                    total=len(self.data_loader.test),
-                    unit="batch")
+            p_bar = None
+
+            if self.is_rank_0:
+                n_test_batches = self.n_test_batches * abs(self.world_size)
+                p_bar = tqdm.tqdm(
+                        desc="Test batch: ",
+                        total=n_test_batches,
+                        unit="batch", position=0, leave=True)
 
             epoch_stats = None
             for batch_idx, data in enumerate(self.data_loader.test):
                 batch_stat = self._validate_step(data, batch_idx, epoch, p_bar)
                 epoch_stats = self._update_stats(epoch_stats, batch_stat)
-            p_bar.close()
-
-            self._normalize_stats(self.n_test_batches, epoch_stats)
-            self._log_epoch('validate/epoch/', epoch_stats)
+            if self.is_rank_0:
+                p_bar.close()
+                self._normalize_stats(self.n_test_batches, epoch_stats)
+                self._log_epoch('test/epoch/', epoch_stats)
 
         return epoch_stats
 
@@ -211,7 +222,12 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         self.tensor_2_item(stats)
         if self.is_rank_0:
             self._log_validation_step(epoch, batch_idx, stats)
-            p_bar.set_postfix_str("loss: {:4.8g}".format(stats['loss']))
+            log_str = ""
+            for key, value in stats.items():
+                if not is_primitive(value):
+                    continue
+                log_str += f"{key}: {value:4.4g} "
+            p_bar.set_postfix_str(log_str)
             p_bar.update(abs(self.world_size))
         return stats
 
@@ -380,12 +396,14 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
             self._save_best_model()
             self._update_best_model_flag(train_log, validate_log)
 
-    def _update_p_bar(self, e_bar, train_log: Dict, validate_log: Dict) -> None:
+    def _update_p_bar(self, e_bar, train_log: Dict, validate_log: Dict, test_log: Dict) -> None:
         e_bar.update()
         e_bar.set_postfix_str(
-                f"train loss: {train_log['loss']:6.6g} train {self.bm_metric}: {train_log[self.bm_metric]:6.6g}, "
-                f"validation loss: {validate_log['loss']:6.6g}, validation {self.bm_metric}: "
-                f"{validate_log[self.bm_metric]:6.4g}")
+                f"train loss: {train_log['loss']:4.2g} train {self.bm_metric}: {train_log[self.bm_metric]:4.2g}, "
+                f"validation loss: {validate_log['loss']:4.2g}, validation {self.bm_metric}: {validate_log[self.bm_metric]:4.2g} "
+                f"test loss: {test_log['loss']:4.2g}, test {self.bm_metric}: {test_log[self.bm_metric]:4.2g}"
+
+        )
 
     def _update_best_model_flag(self, train_log: Dict, validate_log: Dict) -> None:
         self.best_model['train_loss'] = train_log['loss']
