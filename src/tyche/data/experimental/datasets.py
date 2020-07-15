@@ -186,7 +186,7 @@ def _setup_datasets(dataset_name, emb_dim, voc_size, fix_len, min_len=0, path_to
         for tokens in tqdm(_iter, unit='data point', desc=f'Preparing {item} dataset'):
             tokens_ = [token_id for token_id in tokens]
             size = len(tokens_)
-            if size <= min_len or tokens_.count(vocab['=']) >= 2:
+            if size < min_len or tokens_.count(vocab.stoi.get('=', -1)) >= 2:
                 continue
 
             tokens_ = [SOS] + tokens_[:fix_len - 1] + [EOS]
