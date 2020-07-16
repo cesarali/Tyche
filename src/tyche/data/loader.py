@@ -113,6 +113,10 @@ class ADataLoader(ABC):
     def validation_set_size(self):
         return len(self.validate.dataset)
 
+    @property
+    def test_set_size(self):
+        return len(self.test.dataset)
+
 
 class DataLoaderPTB(ADataLoader):
     def __init__(self, device, **kwargs):
