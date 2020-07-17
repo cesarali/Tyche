@@ -5,7 +5,6 @@ import os
 from abc import ABCMeta
 from collections import ChainMap
 from typing import Any
-from typing import Dict
 
 import matplotlib
 import torch
@@ -16,6 +15,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from tyche.data.loader import ADataLoader
+
 from .utils.helper import is_primitive, create_instance, get_device
 
 
@@ -29,11 +29,12 @@ class MyDistributedDataParallel(DDP):
 
 class BaseTrainingProcedure(metaclass=ABCMeta):
 
-    def __init__(self, model, optimizer, distributed, resume, params, data_loader, train_logger=None, **kwargs):
+    def __init__(self, model: torch.nn.Module, optimizer: dict, distributed: bool, resume: bool, params: dict, data_loader: ADataLoader, train_logger=None,
+                 **kwargs):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.data_loader: ADataLoader = data_loader
         self.distributed: bool = distributed
-        self.optimizer = optimizer
+        self.optimizer: dict = optimizer
         self.params: dict = params
         self.rank: int = 0
         self.world_size: int = -1
@@ -54,11 +55,11 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
             self.t_logger = self._setup_logging()
             self.summary = SummaryWriter(self.tensorboard_dir)
 
-        self.start_epoch = 0
-        self.n_epochs = self.params['trainer']['epochs']
-        self.save_after_epoch = self.params['trainer']['args']['save_after_epoch']
-        self.batch_size = self.params['data_loader']['args']['batch_size']
-        self.bm_metric = self.params['trainer']['args']['bm_metric']
+        self.start_epoch: int = 0
+        self.n_epochs: int = self.params['trainer']['epochs']
+        self.save_after_epoch: int = self.params['trainer']['args']['save_after_epoch']
+        self.batch_size: int = self.params['data_loader']['args']['batch_size']
+        self.bm_metric: str = self.params['trainer']['args']['bm_metric']
 
         self.lr_schedulers = self.__init_lr_schedulers()
 
@@ -117,6 +118,8 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
             self._anneal_lr(validate_log)
             self._update_p_bar(e_bar, train_log, validate_log, test_log)
             self._booking_model(epoch, train_log, validate_log)
+            if self._check_early_stopping():
+                break
         self._clear_logging_resources(e_bar)
         return self.best_model
 
@@ -140,6 +143,10 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
                 else:
                     value['scheduler'].step()
                     value['counter'] = value['default_counter']
+
+    def _check_early_stopping(self) -> bool:
+        cond = list(filter(lambda x: x['opt'].param_groups[0]["lr"] < float(x['min_lr_rate']), self.optimizer.values()))
+        return len(cond) != 0
 
     def _train_epoch(self, epoch: int) -> dict:
         self.model.train()
@@ -262,7 +269,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         avg_stats = dict()
         for k, v in statistics.items():
             if not isinstance(v, tuple):
-                dist.reduce(v, 0, dist.ReduceOp.SUM)
+                dist.all_reduce(v, dist.ReduceOp.SUM)
                 avg_stats[k] = v.item() / world_size
             else:
                 avg_stats[k] = v

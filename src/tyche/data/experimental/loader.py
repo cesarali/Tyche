@@ -1,17 +1,13 @@
 from abc import ABC, abstractmethod
 
-import spacy
 import torch
-from torch.utils.data.dataloader import DataLoader
-from torchtext.data.utils import get_tokenizer
-
-from tyche.data.experimental.datasets import WikiText2, WikiText103, PennTreebank
 from nltk.tokenize import TweetTokenizer
+from torch.utils.data.dataloader import DataLoader
+from tyche.data.experimental.datasets import WikiText2, WikiText103, PennTreebank
 
 sampler = torch.utils.data.RandomSampler
 DistributedSampler = torch.utils.data.distributed.DistributedSampler
 
-# spacy_en = spacy.load('en_core_web_sm')
 tokenizer = TweetTokenizer(preserve_case=False).tokenize
 URLS = {
     'AG_NEWS':
@@ -31,28 +27,6 @@ URLS = {
     'AmazonReviewFull':
         'https://drive.google.com/uc?export=download&id=0Bz8a_Dbh9QhbZVhsUnRWRDhETzA'
 }
-
-
-#
-# def tokenizer(x, punct=True):
-#     """
-#     Create a tokenizer function
-#     """
-#     if punct:
-#         return [token.orth_ for token in spacy_en.tokenizer(x) if not token.is_space]
-#     else:
-#         return [token.orth_ for token in spacy_en.tokenizer(x) if not token.is_punct | token.is_space]
-#
-#
-# def tokenizer_ptb(x, punct=True):
-#     """
-#     Create a tokenizer function and replaces unk tokens in source textfile
-#     """
-#     x = x.replace("<unk>", "unk")
-#     if punct:
-#         return [token.orth_ for token in spacy_en.tokenizer(x) if not token.is_space]
-#     else:
-#         return [token.orth_ for token in spacy_en.tokenizer(x) if not token.is_punct | token.is_space]
 
 
 class ADataLoader(ABC):
@@ -86,15 +60,15 @@ class ADataLoader(ABC):
 
     @property
     def n_train_batches(self):
-        return len(self.train.dataset) // self.batch_size // abs(self.world_size)
+        return len(self.train)
 
     @property
     def n_validate_batches(self):
-        return len(self.validate.dataset) // self.batch_size // abs(self.world_size)
+        return len(self.validate)
 
     @property
     def n_test_batches(self):
-        return len(self.test.dataset) // self.batch_size // abs(self.world_size)
+        return len(self.test)
 
     @property
     def train_set_size(self):
@@ -103,6 +77,10 @@ class ADataLoader(ABC):
     @property
     def validation_set_size(self):
         return len(self.validate.dataset)
+
+    @property
+    def test_set_size(self):
+        return len(self.test.dataset)
 
 
 class DataLoaderPTB(ADataLoader):
@@ -239,7 +217,6 @@ class DataLoaderWiki103(ADataLoader):
         vocab = train_dataset.get_vocab()
         vocab.load_vectors(self.emb_dim, unk_init=None, cache=self.path_to_vectors)
         self.train_vocab = vocab
-        # self._fix_length = TEXT.fix_length
 
     @property
     def train(self):
