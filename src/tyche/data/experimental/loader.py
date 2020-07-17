@@ -227,7 +227,9 @@ class DataLoaderWiki103(ADataLoader):
 
         train_dataset, test_dataset, valid_dataset = WikiText103(root=path_to_data, tokenizer=tokenizer, path_to_vectors=path_to_vectors, emb_dim=emb_dim,
                                                                  voc_size=voc_size, min_freq=min_freq, fix_len=fix_len, min_len=min_len)
-
+        train_sampler = None
+        valid_sampler = None
+        test_sampler = None
         if self.world_size != -1:
             train_sampler = DistributedSampler(train_dataset, self.world_size, self.rank)
             valid_sampler = DistributedSampler(valid_dataset, self.world_size, self.rank)
