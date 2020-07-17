@@ -5,7 +5,6 @@ import os
 from abc import ABCMeta
 from collections import ChainMap
 from typing import Any
-from typing import Dict
 
 import matplotlib
 import torch
@@ -15,6 +14,7 @@ import yaml
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
+from tyche.data.loader import ADataLoader
 
 from .utils.helper import is_primitive, create_instance, get_device
 
@@ -29,14 +29,15 @@ class MyDistributedDataParallel(DDP):
 
 class BaseTrainingProcedure(metaclass=ABCMeta):
 
-    def __init__(self, model, optimizer, distributed, resume, params, data_loader, train_logger=None, **kwargs):
+    def __init__(self, model: torch.nn.Module, optimizer: dict, distributed: bool, resume: bool, params: dict, data_loader: ADataLoader, train_logger=None,
+                 **kwargs):
         self.logger = logging.getLogger(self.__class__.__name__)
-        self.data_loader = data_loader
-        self.distributed = distributed
-        self.optimizer = optimizer
-        self.params = params
-        self.rank = 0
-        self.world_size = -1
+        self.data_loader: ADataLoader = data_loader
+        self.distributed: bool = distributed
+        self.optimizer: dict = optimizer
+        self.params: dict = params
+        self.rank: int = 0
+        self.world_size: int = -1
         if distributed:
             self.rank = dist.get_rank()
             self.world_size = dist.get_world_size()
@@ -54,11 +55,11 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
             self.t_logger = self._setup_logging()
             self.summary = SummaryWriter(self.tensorboard_dir)
 
-        self.start_epoch = 0
-        self.n_epochs = self.params['trainer']['epochs']
-        self.save_after_epoch = self.params['trainer']['args']['save_after_epoch']
-        self.batch_size = self.params['data_loader']['args']['batch_size']
-        self.bm_metric = self.params['trainer']['args']['bm_metric']
+        self.start_epoch: int = 0
+        self.n_epochs: int = self.params['trainer']['epochs']
+        self.save_after_epoch: int = self.params['trainer']['args']['save_after_epoch']
+        self.batch_size: int = self.params['data_loader']['args']['batch_size']
+        self.bm_metric: str = self.params['trainer']['args']['bm_metric']
 
         self.lr_schedulers = self.__init_lr_schedulers()
 
@@ -72,12 +73,12 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         else:
             self.schedulers = None
 
-        self.data_loader = data_loader
-        self.n_train_batches = data_loader.n_train_batches
-        self.n_validate_batches = data_loader.n_validate_batches
-        self.n_test_batches = data_loader.n_test_batches
+        self.data_loader: ADataLoader = data_loader
+        self.n_train_batches: int = data_loader.n_train_batches
+        self.n_validate_batches: int = data_loader.n_validate_batches
+        self.n_test_batches: int = data_loader.n_test_batches
 
-        self.global_step = 0
+        self.global_step: int = 0
         self.best_model = {'train_loss': float('inf'),
                            'val_loss': float('inf'),
                            'train_metric': float('inf'),
@@ -117,6 +118,8 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
             self._anneal_lr(validate_log)
             self._update_p_bar(e_bar, train_log, validate_log, test_log)
             self._booking_model(epoch, train_log, validate_log)
+            if self._check_early_stopping():
+                break
         self._clear_logging_resources(e_bar)
         return self.best_model
 
@@ -141,78 +144,81 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
                     value['scheduler'].step()
                     value['counter'] = value['default_counter']
 
+    def _check_early_stopping(self) -> bool:
+        cond = list(filter(lambda x: x['opt'].param_groups[0]["lr"] < float(x['min_lr_rate']), self.optimizer.values()))
+        return len(cond) != 0
+
     def _train_epoch(self, epoch: int) -> dict:
         self.model.train()
-        n_train_batches = self.n_train_batches
         p_bar = tqdm(
                 desc=f'Rank {self.rank}, Training batch: ',
-                total=n_train_batches,
+                total=self.n_train_batches,
                 unit='batch',
                 leave=False,
                 ascii=True,
                 position=self.rank * 2 + 1
         )
-        p_bar.pos = self.rank * 2
         epoch_stats = None
         for batch_idx, data in enumerate(self.data_loader.train):
-            batch_stat = self._train_step(data, batch_idx, epoch, p_bar)
-            epoch_stats = self._update_stats(epoch_stats, batch_stat)
-
+            batch_stats = self._train_step(data, batch_idx, epoch, p_bar)
+            epoch_stats = self._update_stats(epoch_stats, batch_stats)
         p_bar.close()
         del p_bar
-        if self.is_rank_0:
-            self._normalize_stats(self.n_train_batches, epoch_stats)
-            self._log_epoch('train/epoch/', epoch_stats)
+        epoch_stats = self._normalize_stats(self.n_train_batches, epoch_stats)
+        self._log_epoch('train/epoch/', epoch_stats)
 
         return epoch_stats
 
-    def _train_step(self, minibatch: Any, batch_idx: int, epoch: int, p_bar: tqdm):
+    def _train_step(self, minibatch: Any, batch_idx: int, epoch: int, p_bar: tqdm) -> dict:
         stats = self.model.train_step(minibatch, self.optimizer, self.global_step, scheduler=self.schedulers)
-        avg_stats = stats
-        if self.world_size != -1:
-            avg_stats = self._average_across_nodes(stats, self.world_size)
-        self.tensor_2_item(stats)
-        self._update_step_pbar(p_bar, stats)
-        if self.is_rank_0:
-            self._log_train_step(epoch, batch_idx, avg_stats)
+        self._update_step_p_bar(p_bar, stats)
+        stats = self._recv_stats_across_nodes(stats)
 
+        self._log_step('train', epoch, batch_idx, self.data_loader.train_set_size, stats)
         self.global_step += 1
-        return avg_stats
 
-    def _validate_epoch(self, epoch: int) -> Dict:
+        return stats
+
+    def _validate_epoch(self, epoch: int) -> dict:
         self.model.eval()
         with torch.no_grad():
-            n_validate_batches = self.n_validate_batches
             p_bar = tqdm(
                     desc=f"Rank {self.rank}, Validation batch: ",
-                    total=n_validate_batches,
+                    total=self.n_validate_batches,
                     unit="batch",
                     leave=False,
                     ascii=True,
-                    position=self.rank * 2)
+                    position=self.rank * 2 + 1)
 
             epoch_stats = None
             for batch_idx, data in enumerate(self.data_loader.validate):
-                batch_stat = self._validate_step(data, batch_idx, epoch, p_bar)
-                epoch_stats = self._update_stats(epoch_stats, batch_stat)
+                batch_stats = self._validate_step(data, batch_idx, epoch, p_bar)
+                epoch_stats = self._update_stats(epoch_stats, batch_stats)
             p_bar.close()
             del p_bar
-            if self.is_rank_0:
-                self._normalize_stats(self.n_validate_batches, epoch_stats)
-                self._log_epoch('validate/epoch/', epoch_stats)
+            epoch_stats = self._normalize_stats(self.n_validate_batches, epoch_stats)
+            self._log_epoch('validate/epoch/', epoch_stats)
 
             return epoch_stats
+
+    def _validate_step(self, minibatch: dict, batch_idx: int, epoch: int, p_bar: tqdm) -> dict:
+        stats = self.model.validate_step(minibatch)
+        self._update_step_p_bar(p_bar, stats)
+        stats = self._recv_stats_across_nodes(stats)
+
+        self._log_step('validate', epoch, batch_idx, self.data_loader.validation_set_size, stats)
+
+        return stats
 
     def _test_epoch(self, epoch: int) -> dict:
         self.model.eval()
         with torch.no_grad():
-            n_test_batches = self.n_test_batches
             p_bar = tqdm(
                     desc=f'Rank {self.rank}, Test batch: ',
-                    total=n_test_batches,
+                    total=self.n_test_batches,
                     unit='batch',
                     ascii=True,
-                    position=self.rank * 2,
+                    position=self.rank * 2 + 1,
                     leave=False)
 
             epoch_stats = None
@@ -221,36 +227,29 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
                 epoch_stats = self._update_stats(epoch_stats, batch_stat)
             p_bar.close()
             del p_bar
-            if self.is_rank_0:
-                self._normalize_stats(self.n_test_batches, epoch_stats)
-                self._log_epoch('test/epoch/', epoch_stats)
+
+            self._normalize_stats(self.n_test_batches, epoch_stats)
+            self._log_epoch('test/epoch/', epoch_stats)
 
         return epoch_stats
 
-    def _validate_step(self, minibatch: dict, batch_idx: int, epoch: int, p_bar: tqdm):
+    def _test_step(self, minibatch: dict, batch_idx: int, epoch: int, p_bar: tqdm) -> dict:
         stats = self.model.validate_step(minibatch)
-        avg_stats = stats
-        if self.world_size != -1:
-            avg_stats = self._average_across_nodes(stats, self.world_size)
-        self.tensor_2_item(stats)
-        self._update_step_pbar(p_bar, stats)
-        if self.is_rank_0:
-            self._log_validation_step(epoch, batch_idx, avg_stats)
-        return avg_stats
+        self._update_step_p_bar(p_bar, stats)
+        stats = self._recv_stats_across_nodes(stats)
+        self._log_step('test', epoch, batch_idx, self.data_loader.test_set_size, stats)
 
-    def _test_step(self, minibatch: dict, batch_idx: int, epoch: int, p_bar: tqdm):
-        stats = self.model.validate_step(minibatch)
-        avg_stats = stats
+        return stats
+
+    def _recv_stats_across_nodes(self, stats: dict) -> dict:
         if self.world_size != -1:
-            avg_stats = self._average_across_nodes(stats, self.world_size)
-        self.tensor_2_item(stats)
-        self._update_step_pbar(p_bar, stats)
-        if self.is_rank_0:
-            self._log_test_step(epoch, batch_idx, avg_stats)
-        return avg_stats
+            stats = self._average_across_nodes(stats, self.world_size)
+        else:
+            stats = self.tensor_2_item(stats)
+        return stats
 
     @staticmethod
-    def _update_stats(epoch_stat: dict, batch_stat: dict):
+    def _update_stats(epoch_stat: dict, batch_stat: dict) -> dict:
         if epoch_stat is None:
             return batch_stat.copy()
         for k, v in batch_stat.items():
@@ -269,12 +268,17 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
     def _average_across_nodes(statistics: dict, world_size: int) -> dict:
         avg_stats = dict()
         for k, v in statistics.items():
-            if is_primitive(v):
-                dist.recv(v, dist.ReduceOp.SUM)
+            if not isinstance(v, tuple):
+                dist.all_reduce(v, dist.ReduceOp.SUM)
                 avg_stats[k] = v.item() / world_size
+            else:
+                avg_stats[k] = v
         return avg_stats
 
-    def _log_epoch(self, log_label: str, statistics: dict):
+    def _log_epoch(self, log_label: str, statistics: dict) -> None:
+        if not self.is_rank_0:
+            return None
+
         for k, v in statistics.items():
             if is_primitive(v):
                 self.summary.add_scalar(log_label + k, v, self.global_step)
@@ -382,32 +386,17 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
 
         return logger
 
-    def _log_train_step(self, epoch: int, batch_idx: int, stats: dict) -> None:
-        data_len = self.data_loader.train_set_size
-        log = self._build_raw_log_str('Train epoch', batch_idx, epoch, stats, data_len, self.batch_size)
+    def _log_step(self, step_type: str, epoch: int, batch_idx: int, data_len: int, stats: dict) -> None:
+        if not self.is_rank_0:
+            return None
+        log = self._build_raw_log_str(f'{step_type} epoch', batch_idx, epoch, stats, float(data_len), self.batch_size)
         self.t_logger.info(log)
         for k, v in stats.items():
             if is_primitive(v):
-                self.summary.add_scalar('train/batch/' + k, v, self.global_step)
-
-    def _log_validation_step(self, epoch: int, batch_idx: int, logs: dict) -> None:
-        data_len = self.data_loader.validation_set_size
-        log = self._build_raw_log_str('Validation epoch', batch_idx, epoch, logs, data_len, self.batch_size)
-        self.t_logger.info(log)
-        for k, v in logs.items():
-            if is_primitive(v):
-                self.summary.add_scalar('validate/batch/' + k, v, self.global_step)
-
-    def _log_test_step(self, epoch: int, batch_idx: int, logs: dict) -> None:
-        data_len = self.data_loader.test_set_size
-        log = self._build_raw_log_str('Test epoch', batch_idx, epoch, logs, data_len, self.batch_size)
-        self.t_logger.info(log)
-        for k, v in logs.items():
-            if is_primitive(v):
-                self.summary.add_scalar('test/batch/' + k, v, self.global_step)
+                self.summary.add_scalar(f'{step_type}/batch/' + k, v, self.global_step)
 
     @staticmethod
-    def _build_raw_log_str(prefix: str, batch_idx: int, epoch: int, logs: Dict, data_len: int, batch_size: int):
+    def _build_raw_log_str(prefix: str, batch_idx: int, epoch: int, logs: dict, data_len: float, batch_size: int):
         sb = prefix + ': {} [{}/{} ({:.0%})]'.format(
                 epoch,
                 batch_idx * batch_size,
@@ -431,16 +420,15 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         e_bar.update()
 
     @staticmethod
-    def _update_step_pbar(p_bar: tqdm, stats: dict):
+    def _update_step_p_bar(p_bar: tqdm, stats: dict):
         log_str = ''
         for key, value in stats.items():
-            if not is_primitive(value):
+            if isinstance(value, tuple):
                 continue
-            log_str += f"{key}: {value:4.4g} "
-        # p_bar.pos = 0
+            log_str += f"{key}: {value.item():4.4g} "
+
         p_bar.update()
         p_bar.set_postfix_str(log_str)
-        # p_bar.pos = -1
 
     def _update_best_model_flag(self, train_log: dict, validate_log: dict) -> None:
         self.best_model['train_loss'] = train_log['loss']
