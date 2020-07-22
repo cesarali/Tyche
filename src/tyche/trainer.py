@@ -423,7 +423,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
     def _update_step_p_bar(p_bar: tqdm, stats: dict):
         log_str = ''
         for key, value in stats.items():
-            if isinstance(value, tuple):
+            if isinstance(value, tuple) or len(value.size()) > 1:
                 continue
             log_str += f"{key}: {value.item():4.4g} "
 
@@ -440,6 +440,6 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
     @staticmethod
     def tensor_2_item(stats):
         for key, value in stats.items():
-            if type(value) is torch.Tensor:
+            if type(value) is torch.Tensor and len(value.size()) == 1:
                 stats[key] = value.item()
         return stats
