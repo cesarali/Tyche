@@ -440,6 +440,6 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
     @staticmethod
     def tensor_2_item(stats):
         for key, value in stats.items():
-            if type(value) is torch.Tensor and len(value.size()) == 1:
+            if type(value) is torch.Tensor and len(value.size()) == 0:
                 stats[key] = value.item()
         return stats
