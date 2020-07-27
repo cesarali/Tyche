@@ -15,6 +15,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from tyche.data.loader import ADataLoader
+import pickle
 
 from .utils.helper import is_primitive, create_instance, get_device
 
@@ -312,7 +313,8 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
             'model_type': model_type,
             'epoch': kwargs.get('epoch'),
             'model_state': self.model.state_dict(),
-            'params': self.params
+            'params': self.params,
+            'vocab': pickle.dumps(self.data_loader.vocab)
         }
         for key in self.optimizer:
             state[key] = self.optimizer[key]['opt'].state_dict()
