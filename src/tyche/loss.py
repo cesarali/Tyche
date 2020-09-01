@@ -3,6 +3,7 @@ import torch.nn.functional as F
 from torch import nn as nn
 from torch.nn.modules.loss import CrossEntropyLoss, _Loss
 import math
+import numpy as np
 
 from tyche.utils import param_scheduler as p_scheduler
 
@@ -41,6 +42,29 @@ def mim_reg(mean, sigma, reduction='mean'):
     else:
         return s_dist
 
+
+def kullback_leibler_weibull_gamma(k, l, a, b, device, reduction='mean'):
+    """
+     (negative) Kullback-Leibler divergence between Weibull and Gamma distributions:
+     k: shape parameter of Weibull distr.
+     l: scale parameter of Weibull distr.
+     a: shape parameter of Gamma distr.
+     b: inverse-scale parameter of Gamma distr.
+    """
+    epsilon = torch.ones(k.shape).fill_(1e-8).to(device)
+    a = torch.ones(k.shape).fill_(a).to(device)
+    b = torch.ones(k.shape).fill_(b).to(device)
+    k = torch.max(k, epsilon)
+    l = torch.max(l, epsilon)
+    kl = -(a * torch.log(l) - np.euler_gamma * (a / k) - torch.log(k)
+           - b * l * torch.exp(torch.lgamma(1 + (1/k))) + np.euler_gamma
+           + 1 + a * torch.log(b) - torch.lgamma(a))
+    if reduction == 'mean':
+        return torch.mean(kl)
+    elif reduction == 'sum':
+        return torch.sum(kl)
+    else:
+        return kl
 
 class ELBO(CrossEntropyLoss):
     r"""This criterion combines :func:`nn.LogSoftmax` and :func:`nn.NLLLoss` in one single class.
