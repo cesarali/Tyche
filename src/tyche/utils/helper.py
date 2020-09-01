@@ -390,3 +390,31 @@ def sum_dictionaries(dicts: List):
         return accumulator
 
     return reduce(reducer, dicts, {})
+
+
+def sample(dist, mode=None, unk_idx=None):
+    """
+    Auxiliary sampling method.
+    """
+    if mode in ['sample-no-unk', 'greedy-no-unk'] and unk_idx is None:
+        raise ValueError('Unknown index for the <unk> token!')
+    if mode == 'greedy':
+        _, _sample = torch.topk(dist, 1, dim=-1)
+    elif mode == 'sample':
+        sample_prob = torch.nn.functional.softmax(dist, dim=-1).squeeze(1)
+        _sample = torch.multinomial(sample_prob, num_samples=1)
+    elif mode == 'sample-no-unk':
+        # reduce chances for <unk>
+        dist[:, :, unk_idx] = dist.min()
+        sample_prob = torch.nn.functional.softmax(dist, dim=-1).squeeze(1)
+        _sample = torch.multinomial(sample_prob, num_samples=1)
+    elif mode == 'greedy-no-unk':
+        # prevent <unk>
+        dist[:, :, unk_idx] = dist.min()
+        _, _sample = torch.topk(dist, 1, dim=-1)
+    else:
+        raise ValueError(f'Unknown sampling mode = {mode}')
+
+    _sample = _sample.squeeze()
+
+    return _sample
