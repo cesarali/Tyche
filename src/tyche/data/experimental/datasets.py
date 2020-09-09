@@ -8,7 +8,7 @@ import torch
 from torchtext.data.functional import numericalize_tokens_from_iterator
 from torchtext.data.utils import get_tokenizer
 from torchtext.utils import download_from_url, extract_archive
-from torchtext.vocab import Vocab
+from torchtext.vocab import Vocab, pretrained_aliases, Vectors
 from tqdm import tqdm
 
 URLS = {
@@ -123,14 +123,18 @@ def build_vocab_from_iterator(iterator, emb_dim, voc_size, min_freq, path_to_vec
         for tokens in iterator:
             counter.update(tokens)
             t.update(1)
-    word_vocab = Vocab(counter, max_size=voc_size, min_freq=min_freq, vectors=emb_dim, vectors_cache=path_to_vectors,
-                       specials=['<unk>', '<pad>', '<sos>', '<eos>'])
+    if emb_dim in pretrained_aliases:
+        word_vocab = Vocab(counter, max_size=voc_size, min_freq=min_freq, vectors=emb_dim, vectors_cache=path_to_vectors,
+                           specials=['<unk>', '<pad>', '<sos>', '<eos>'])
+    else:
+        custom_vectors = Vectors(emb_dim, path_to_vectors)
+        word_vocab = Vocab(counter, max_size=voc_size, min_freq=min_freq, vectors=custom_vectors, specials=['<unk>', '<pad>', '<sos>', '<eos>'])
     return word_vocab
 
 
 def _setup_datasets(dataset_name, emb_dim, voc_size, fix_len, min_len=0, path_to_vectors=None, min_freq=1,
                     tokenizer=get_tokenizer("basic_english"),
-                    root='.data', vocab=None, removed_tokens=[],
+                    root='./data', vocab=None, removed_tokens=[],
                     data_select=('train', 'test', 'valid'), ):
     if isinstance(data_select, str):
         data_select = [data_select]
@@ -142,7 +146,6 @@ def _setup_datasets(dataset_name, emb_dim, voc_size, fix_len, min_len=0, path_to
 
         select_to_index = {'train': 0, 'test': 1, 'valid': 2}
         for key in data_select:
-
             url_ = URLS['PennTreebank'][select_to_index[key]]
             _, filename = os.path.split(url_)
             path_ = os.path.join(root, filename)
@@ -151,13 +154,21 @@ def _setup_datasets(dataset_name, emb_dim, voc_size, fix_len, min_len=0, path_to
             else:
                 extracted_files.append(download_from_url(url_, root=root))
 
-    else:
+    elif dataset_name in URLS:
         url_ = URLS[dataset_name]
         _, filename = os.path.split(url_)
         dataset_tar = os.path.join(root, filename)
         if not os.path.exists(dataset_tar):
             dataset_tar = download_from_url(url_, root=root)
         extracted_files = extract_archive(dataset_tar)
+    else:
+        extracted_files = []
+        for key in data_select:
+
+            file_ = os.path.join(root, f'{key}.txt')
+            if not os.path.exists(file_):
+                raise FileExistsError(f'File cannot be found at location {file_}')
+            extracted_files.append(file_)
 
     _path = {}
     for item in data_select:
