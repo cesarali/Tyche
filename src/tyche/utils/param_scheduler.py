@@ -11,6 +11,19 @@ class ExponentialScheduler(object):
         return float(1. / (1. + np.exp(-self.decay_rate * (step - self.max_steps))))
 
 
+class ExponentialIncrease(object):
+    """
+    Increases exponentially from zero to one
+    """
+    def __init__(self, **kwargs):
+        n_steps_to_rich_maximum = kwargs.get('n_steps_to_rich_maximum', 10000)
+        max_value = 0.99
+        self.decay_rate = -np.log(1. - max_value) / n_steps_to_rich_maximum
+
+    def __call__(self, step):
+        return float(1. - np.exp(-self.decay_rate * step))
+
+
 class ExponentialSchedulerGumbel(object):
 
     def __init__(self, **kwargs):
