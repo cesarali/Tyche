@@ -13,27 +13,41 @@ class ExponentialScheduler(object):
 
 class ExponentialIncrease(object):
     """
-    Increases exponentially from zero to one
+    Increases exponentially from zero to max_value
     """
     def __init__(self, **kwargs):
         n_steps_to_rich_maximum = kwargs.get('n_steps_to_rich_maximum', 10000)
-        max_value = 0.99
-        self.decay_rate = -np.log(1. - max_value) / n_steps_to_rich_maximum
+        self.max_value = kwargs.get('max_value', 1.0)
+        self.decay_rate = -np.log(1. - 0.99) / n_steps_to_rich_maximum
+        self.validation_value = kwargs.get('validation_value', 1.0)
 
     def __call__(self, step):
-        return float(1. - np.exp(-self.decay_rate * step))
+        return self.max_value * float(1. - np.exp(-self.decay_rate * step))
 
 
 class ExponentialSchedulerGumbel(object):
-
+    """
+    Exponential annealing for Gumbel-Softmax temperature
+    """
     def __init__(self, **kwargs):
+        self.temp_init = kwargs.get('temp_init')
         self.min_tau = kwargs.get('min_temp')
         n_steps_to_rich_minimum = kwargs.get('n_steps_to_rich_minimum', 10000)
         self.decay_rate = -np.log(self.min_tau) / n_steps_to_rich_minimum
+        self.validation_value = kwargs.get('validation_value', 0.5)
 
-    def __call__(self, tau_init, step):
-        t = np.maximum(tau_init * np.exp(-self.decay_rate * step), self.min_tau)
+    def __call__(self, step):
+        t = np.maximum(self.temp_init * np.exp(-self.decay_rate * step), self.min_tau)
         return t
+
+
+class ConstantScheduler(object):
+    def __init__(self, **kwargs):
+        self.beta = kwargs.get('beta', 1.0)
+        self.validation_value = kwargs.get('validation_value', 1.0)
+
+    def __call__(self, step):
+        return self.beta
 
 
 class LinearScheduler(object):
@@ -47,11 +61,3 @@ class LinearScheduler(object):
             return min(1., float(step) / self.max_steps)
         else:
             return min(1., self.start_value + float(step) / self.max_steps * (1 - self.start_value))
-
-
-class ConstantScheduler(object):
-    def __init__(self, **kwargs):
-        self.beta = kwargs.get('beta', 1.0)
-
-    def __call__(self, step):
-        return self.beta

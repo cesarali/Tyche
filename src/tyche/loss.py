@@ -24,6 +24,20 @@ def kullback_leibler(mean, sigma, reduction='mean'):
     else:
         return skl
 
+def kullback_leibler_two_gaussians(mean1, sigma1, mean2, sigma2, reduction='mean'):
+    """
+    Kullback-Leibler divergence between two Gaussians
+    """
+    kl = -0.5 * (1 - 2.0 * torch.log(sigma2 / sigma1) -
+                 ((mean1 - mean2) * (mean1 - mean2) + sigma1 * sigma1)/(sigma2 * sigma2))  # [B, D]
+    skl = torch.sum(kl, dim=1)
+    if reduction == 'mean':
+        return torch.mean(skl)
+    elif reduction == 'sum':
+        return torch.sum(skl)
+    else:
+        return skl
+
 
 def mim_reg(mean, sigma, reduction='mean'):
     """
@@ -65,6 +79,32 @@ def kullback_leibler_weibull_gamma(k, l, a, b, device, reduction='mean'):
         return torch.sum(kl)
     else:
         return kl
+
+
+def smim_reg_weibull_gamma(k, l, a, b, device, reduction='mean'):
+    """
+     (negative) E_q(w)[log q(w) + log p(w)]:
+     k: shape parameter of Weibull distr.
+     l: scale parameter of Weibull distr.
+     a: shape parameter of Gamma distr.
+     b: inverse-scale parameter of Gamma distr.
+    """
+    epsilon = torch.ones(k.shape).fill_(1e-8).to(device)
+    a = torch.ones(k.shape).fill_(a).to(device)
+    b = torch.ones(k.shape).fill_(b).to(device)
+    k = torch.max(k, epsilon)
+    l = torch.max(l, epsilon)
+    reg = (torch.log(k) + a * torch.log(b) - torch.lgamma(a) +
+            a * torch.log(l) - 2.0 * torch.log(l) - np.euler_gamma
+            - np.euler_gamma * (a / k) + 2 * (np.euler_gamma / k) - 1
+            - l * b * torch.exp(torch.lgamma((k + 1) / k)))
+    if reduction == 'mean':
+        return torch.mean(reg)
+    elif reduction == 'sum':
+        return torch.sum(reg)
+    else:
+        return reg
+
 
 class ELBO(CrossEntropyLoss):
     r"""This criterion combines :func:`nn.LogSoftmax` and :func:`nn.NLLLoss` in one single class.
