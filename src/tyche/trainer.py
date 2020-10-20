@@ -137,13 +137,14 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
                 self._save_check_point(epoch)
 
     def _anneal_lr(self, validate_log: dict) -> None:
-        if validate_log[self.bm_metric] > self.best_model['val_metric']:
-            for key, value in self.lr_schedulers.items():
-                if value['counter'] > 0:
-                    value['counter'] -= 1
-                else:
-                    value['scheduler'].step()
-                    value['counter'] = value['default_counter']
+        if self.lr_schedulers is not None:
+            if validate_log[self.bm_metric] > self.best_model['val_metric']:
+                for key, value in self.lr_schedulers.items():
+                    if value['counter'] > 0:
+                        value['counter'] -= 1
+                    else:
+                        value['scheduler'].step()
+                        value['counter'] = value['default_counter']
 
     def _check_early_stopping(self) -> bool:
         cond = list(filter(lambda x: x['opt'].param_groups[0]["lr"] < float(x['min_lr_rate']), self.optimizer.values()))
