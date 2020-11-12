@@ -418,3 +418,15 @@ def sample(dist, mode=None, unk_idx=None):
     _sample = _sample.squeeze()
 
     return _sample
+
+
+def get_file_line_number(file_path: str) -> int:
+    with open(file_path, 'r', encoding='utf-8') as f:
+        buf_size = 1024 ** 2
+        read_f = f.read
+        lines: int = 0
+        buf = read_f(buf_size)
+        while buf:
+            lines += buf.count('\n')
+            buf = read_f(buf_size)
+        return lines

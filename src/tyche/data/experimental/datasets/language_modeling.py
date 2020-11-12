@@ -1,15 +1,16 @@
 import io
 import logging
 import os
-from collections import Counter, defaultdict
+from collections import defaultdict
 
 import numpy as np
 import torch
 from torchtext.data.functional import numericalize_tokens_from_iterator
 from torchtext.data.utils import get_tokenizer
 from torchtext.utils import download_from_url, extract_archive
-from torchtext.vocab import Vocab, pretrained_aliases, Vectors
+from torchtext.vocab import Vocab
 from tqdm import tqdm
+from tyche.data.experimental.datasets.vocab import build_vocab_from_iterator
 
 URLS = {
     'WikiText2':
@@ -21,7 +22,7 @@ URLS = {
          'https://raw.githubusercontent.com/wojzaremba/lstm/master/data/ptb.test.txt',
          'https://raw.githubusercontent.com/wojzaremba/lstm/master/data/ptb.valid.txt']
 }
-
+UNK = 0
 PAD = 1
 SOS = 2
 EOS = 3
@@ -110,35 +111,13 @@ def _get_datafile_path(key, extracted_files):
             return fname
 
 
-def build_vocab_from_iterator(iterator, emb_dim, voc_size, min_freq, path_to_vectors):
-    """
-    Build a Vocab from an iterator.
-
-    Arguments:d
-        iterator: Iterator used to build Vocab. Must yield list or iterator of tokens.
-    """
-
-    counter = Counter()
-    with tqdm(unit='lines', desc='Building Vocabulary') as t:
-        for tokens in iterator:
-            counter.update(tokens)
-            t.update(1)
-    if emb_dim in pretrained_aliases:
-        word_vocab = Vocab(counter, max_size=voc_size, min_freq=min_freq, vectors=emb_dim, vectors_cache=path_to_vectors,
-                           specials=['<unk>', '<pad>', '<sos>', '<eos>'])
-    else:
-        custom_vectors = Vectors(emb_dim, path_to_vectors)
-        word_vocab = Vocab(counter, max_size=voc_size, min_freq=min_freq, vectors=custom_vectors, specials=['<unk>', '<pad>', '<sos>', '<eos>'])
-    return word_vocab
-
-
 def _setup_datasets(dataset_name, emb_dim, voc_size, fix_len, min_len=0, path_to_vectors=None, min_freq=1,
                     tokenizer=get_tokenizer("basic_english"),
                     root='./data', vocab=None, removed_tokens=[],
                     data_select=('train', 'test', 'valid'), ):
     if isinstance(data_select, str):
         data_select = [data_select]
-    if not set(data_select).issubset(set(('train', 'test', 'valid'))):
+    if not set(data_select).issubset({'train', 'test', 'valid'}):
         raise TypeError('data_select is not supported!')
 
     if dataset_name == 'PennTreebank':
@@ -243,9 +222,9 @@ def WikiText2(*args, **kwargs):
             data.
 
     Examples:
-        >>> from torchtext.experimental.datasets import WikiText2
-        >>> from torchtext.data.utils import get_tokenizer
-        >>> tokenizer = get_tokenizer("spacy")
+        >>> from tyche.data.experimental.datasets import WikiText2
+        >>> from nltk.tokenize import TweetTokenizer
+        >>> tokenizer = TweetTokenizer(preserve_case=False).tokenize
         >>> train_dataset, test_dataset, valid_dataset = WikiText2(tokenizer=tokenizer)
         >>> vocab = train_dataset.get_vocab()
         >>> valid_dataset, = WikiText2(tokenizer=tokenizer, vocab=vocab,
@@ -280,9 +259,9 @@ def WikiText103(*args, **kwargs):
             data.
 
     Examples:
-        >>> from torchtext.experimental.datasets import WikiText103
-        >>> from torchtext.data.utils import get_tokenizer
-        >>> tokenizer = get_tokenizer("spacy")
+        >>> from tyche.data.experimental.datasets import WikiText103
+        >>> from nltk.tokenize import TweetTokenizer
+        >>> tokenizer = TweetTokenizer(preserve_case=False).tokenize
         >>> train_dataset, test_dataset, valid_dataset = WikiText103(tokenizer=tokenizer)
         >>> vocab = train_dataset.get_vocab()
         >>> valid_dataset, = WikiText103(tokenizer=tokenizer, vocab=vocab,
@@ -317,9 +296,9 @@ def PennTreebank(*args, **kwargs):
             data.
 
     Examples:
-        >>> from torchtext.experimental.datasets import PennTreebank
-        >>> from torchtext.data.utils import get_tokenizer
-        >>> tokenizer = get_tokenizer("spacy")
+        >>> from tyche.data.experimental.datasets import PennTreebank
+        >>> from nltk.tokenize import TweetTokenizer
+        >>> tokenizer = TweetTokenizer(preserve_case=False).tokenize
         >>> train_dataset, test_dataset, valid_dataset = PennTreebank(tokenizer=tokenizer)
         >>> vocab = train_dataset.get_vocab()
         >>> valid_dataset, = PennTreebank(tokenizer=tokenizer, vocab=vocab,
