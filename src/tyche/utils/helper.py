@@ -125,8 +125,7 @@ def to_one_hot(labels, num_classes):
     """
     shape = labels.size()
     shape = shape + (num_classes,)
-    one_hot = torch.FloatTensor(shape)
-    one_hot.zero_()
+    one_hot = torch.zeros(shape, dtype=torch.float, device=labels.device)
     dim = 1 if len(shape) == 2 else 2
     one_hot.scatter_(dim, labels.unsqueeze(-1), 1)
     return one_hot
