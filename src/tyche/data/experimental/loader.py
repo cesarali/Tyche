@@ -284,3 +284,68 @@ class DataLoaderYelpReviewPolarity(ADataLoader):
     @property
     def fix_len(self):
         return self._fix_length
+
+
+class DataLoaderSemiSupervised(ADataLoader):
+    """
+    This is a data loader for any labelled text classification data set. The user can also change the proportion of visible target labels
+    i.e. from fully supervised to un-supervised.
+    """
+
+    def __init__(self, device, rank: int = 0, world_size=-1, supervised_proportion=0.9, **kwargs):
+        """
+        Provide the location folder of the dataset, if the folder is empty or does not exists the data will be downloaded automatically.
+        :param device:
+        :param rank:
+        :param world_size:
+        :param supervised_proportion: the proportion of the data with masked labels,
+        :param kwargs:
+        """
+
+        dataset = kwargs.pop('dataset')
+        path_to_data = kwargs.pop('path_to_data')
+        super().__init__(device, rank, world_size, **kwargs)
+        path_to_vectors = kwargs.pop('path_to_vectors')
+        emb_dim = kwargs.pop('emb_dim')
+        voc_size = kwargs.pop('voc_size')
+        min_freq = kwargs.pop('min_freq')
+        fix_len = kwargs.pop('fix_len')
+        min_len = kwargs.pop('min_len')
+
+        train_dataset, test_dataset, valid_dataset = dataset(root=path_to_data, tokenizer=tokenizer, path_to_vectors=path_to_vectors,
+                                                                        emb_dim=emb_dim,
+                                                                        voc_size=voc_size, min_freq=min_freq, fix_len=fix_len, min_len=min_len,
+                                                                        supervised_proportion=supervised_proportion)
+        train_sampler = torch.utils.data.WeightedRandomSampler(train_dataset.data['weights'], num_samples=len(train_dataset.data['weights']))
+        valid_sampler = None
+        test_sampler = None
+        if self.world_size != -1:
+            raise NotImplementedError('Distributed training and semi-supervised data loaders not implemented!')
+
+        self._train_iter = DataLoader(train_dataset, drop_last=True, sampler=train_sampler, shuffle=train_sampler is None, **kwargs)
+        self._valid_iter = DataLoader(valid_dataset, drop_last=True, sampler=valid_sampler, shuffle=valid_sampler is None, **kwargs)
+        self._test_iter = DataLoader(test_dataset, drop_last=True, sampler=test_sampler, shuffle=test_sampler is None, **kwargs)
+        vocab = train_dataset.vocab
+        vocab.load_vectors(self.emb_dim, unk_init=None, cache=self.path_to_vectors)
+        self.train_vocab = vocab
+
+    @property
+    def train(self):
+        return self._train_iter
+
+    @property
+    def test(self):
+        return self._test_iter
+
+    @property
+    def validate(self):
+        return self._valid_iter
+
+    @property
+    def vocab(self):
+        return self.train_vocab
+
+    @property
+    def fix_len(self):
+        return self._fix_length
+
