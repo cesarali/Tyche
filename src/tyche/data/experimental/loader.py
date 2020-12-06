@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 import torch
 from nltk.tokenize import TweetTokenizer
 from torch.utils.data.dataloader import DataLoader
-from tyche.data.experimental.datasets import WikiText2, WikiText103, PennTreebank, YelpReviewPolarity
+from tyche.data.experimental.datasets import WikiText2, WikiText103, PennTreebank, YelpReviewPolarity, YahooAnswers
 
 sampler = torch.utils.data.RandomSampler
 
@@ -302,7 +302,7 @@ class DataLoaderSemiSupervised(ADataLoader):
         :param kwargs:
         """
 
-        dataset = kwargs.pop('dataset')
+        dataset = eval(kwargs.pop('dataset'))
         path_to_data = kwargs.pop('path_to_data')
         super().__init__(device, rank, world_size, **kwargs)
         path_to_vectors = kwargs.pop('path_to_vectors')
