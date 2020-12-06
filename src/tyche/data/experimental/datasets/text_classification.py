@@ -97,6 +97,23 @@ class TextClassificationDataset(torch.utils.data.Dataset):
         self.__vocab = v
 
 
+# adds labels at the beginning of lines for YahooAnswers
+def preprocess_yahoo(file):
+    src = open(file, "rt")
+    label = -1
+    file_iter = [row for row in src]
+    data = ''
+    for i, line in enumerate(file_iter):
+        if i % (len(file_iter) / 10) == 0:
+            label += 1
+        data += str(label) + '\t' + line
+    src.close()
+    dest = open(file, "wt")
+    dest.write(data)
+    dest.close()
+    os.rename(file, file.replace('val', 'valid'))
+
+
 def _setup_datasets(
         dataset_name, emb_dim, voc_size, fix_len, min_len=0, path_to_vectors=None, min_freq=1,
         root="data",
@@ -112,28 +129,35 @@ def _setup_datasets(
         data_select = [data_select]
     if not set(data_select).issubset({"train", "test", "valid"}):
         raise TypeError("Given data selection {} is not supported!".format(data_select))
-    if dataset_name == 'YelpReviewPolarity':
+    if dataset_name in ['YelpReviewPolarity', 'YahooAnswers']:
         extracted_files = []
         select_to_index = {'train': 0, 'test': 1, 'valid': 2}
         for key in data_select:
-            url_ = URLS['YelpReviewPolarity'][select_to_index[key]]
+            url_ = URLS[dataset_name][select_to_index[key]]
             _, filename = os.path.split(url_)
             path_ = os.path.join(root, filename)
+            if dataset_name == 'YahooAnswers':
+                path_ = path_.replace('val', 'valid')
             if os.path.exists(path_):
                 extracted_files.append(path_)
             else:
-                extracted_files.append(download_from_url(url_, root=root))
+                file = download_from_url(url_, root=root)
+                if dataset_name == 'YahooAnswers':
+                    preprocess_yahoo(file)
+                    file = file.replace('val', 'valid')
+                extracted_files.append(file)
 
     # Cache raw text iterable dataset
-
     _path = {}
     for item in data_select:
         _path[item] = _get_datafile_path(item, extracted_files)
+
 
     if vocab is None:
         if 'train' not in _path.keys():
             raise TypeError("Must pass a vocab if train is not selected.")
         logging.info('Building Vocab based on {}'.format(_path['train']))
+
         with io.open(_path['train'], encoding="utf8") as f:
             txt_iter = iter(tokenizer(row.split('\t')[1]) for row in f)
             vocab = build_vocab_from_iterator(txt_iter, min_freq=min_freq, voc_size=voc_size, emb_dim=emb_dim, path_to_vectors=path_to_vectors)
@@ -236,6 +260,87 @@ def YelpReviewPolarity(*args, **kwargs):
     return _setup_datasets(*(("YelpReviewPolarity",) + args), **kwargs)
 
 
+def YelpReviewFull(*args, **kwargs):
+    """ Defines YelpReviewPolarity datasets.
+        The labels includes:
+            - 1 : Negative polarity.
+            - 2 : Positive polarity.
+
+    Create text classification dataset: YelpReviewPolarity
+
+    Separately returns the training and test dataset
+
+    Arguments:
+        root: Directory where the datasets are saved. Default: ".data"
+        ngrams: a contiguous sequence of n items from s string text.
+            Default: 1
+        vocab: Vocabulary used for dataset. If None, it will generate a new
+            vocabulary based on the train data set.
+        tokenizer: the tokenizer used to preprocess raw text data.
+            The default one is basic_english tokenizer in fastText. spacy tokenizer
+            is supported as well. A custom tokenizer is callable
+            function with input of a string and output of a token list.
+        data_select: a string or tuple for the returned datasets
+            (Default: ('train', 'test'))
+            By default, all the three datasets (train, test, valid) are generated. Users
+            could also choose any one or two of them, for example ('train', 'test') or
+            just a string 'train'. If 'train' is not in the tuple or string, a vocab
+            object should be provided which will be used to process valid and/or test
+            data.
+
+    Examples:
+        >>> from tyche.data.experimental.datasets import YelpReviewPolarity
+        >>> from nltk.tokenize import TweetTokenizer
+        >>> train, test, valid = YelpReviewPolarity(ngrams=3)
+        >>> tokenizer = TweetTokenizer(preserve_case=False).tokenize
+        >>> train, test, valid = YelpReviewPolarity(tokenizer=tokenizer)
+        >>> train, = YelpReviewPolarity(tokenizer=tokenizer, data_select='train')
+
+    """
+    return _setup_datasets(*(("YelpReviewPolarity",) + args), **kwargs)
+
+
+def YahooAnswers(*args, **kwargs):
+    """ Defines YelpReviewPolarity datasets.
+        The labels includes:
+            - 1 : Negative polarity.
+            - 2 : Positive polarity.
+
+    Create text classification dataset: YelpReviewPolarity
+
+    Separately returns the training and test dataset
+
+    Arguments:
+        root: Directory where the datasets are saved. Default: ".data"
+        ngrams: a contiguous sequence of n items from s string text.
+            Default: 1
+        vocab: Vocabulary used for dataset. If None, it will generate a new
+            vocabulary based on the train data set.
+        tokenizer: the tokenizer used to preprocess raw text data.
+            The default one is basic_english tokenizer in fastText. spacy tokenizer
+            is supported as well. A custom tokenizer is callable
+            function with input of a string and output of a token list.
+        data_select: a string or tuple for the returned datasets
+            (Default: ('train', 'test'))
+            By default, all the three datasets (train, test, valid) are generated. Users
+            could also choose any one or two of them, for example ('train', 'test') or
+            just a string 'train'. If 'train' is not in the tuple or string, a vocab
+            object should be provided which will be used to process valid and/or test
+            data.
+
+    Examples:
+        >>> from tyche.data.experimental.datasets import YelpReviewPolarity
+        >>> from nltk.tokenize import TweetTokenizer
+        >>> train, test, valid = YelpReviewPolarity(ngrams=3)
+        >>> tokenizer = TweetTokenizer(preserve_case=False).tokenize
+        >>> train, test, valid = YelpReviewPolarity(tokenizer=tokenizer)
+        >>> train, = YelpReviewPolarity(tokenizer=tokenizer, data_select='train')
+
+    """
+    kwargs['root'] += '/yahoo'
+
+    return _setup_datasets(*(("YahooAnswers",) + args), **kwargs)
+
 URLS = {
     'WikiText2':
         'https://s3.amazonaws.com/research.metamind.io/wikitext/wikitext-2-v1.zip',
@@ -248,12 +353,17 @@ URLS = {
     'YelpReviewPolarity':
         ['https://github.com/fangleai/Implicit-LVM/raw/master/lang_model_yelp/data/yelp.train.txt',
          'https://github.com/fangleai/Implicit-LVM/raw/master/lang_model_yelp/data/yelp.test.txt',
-         'https://github.com/fangleai/Implicit-LVM/raw/master/lang_model_yelp/data/yelp.valid.txt']
+         'https://github.com/fangleai/Implicit-LVM/raw/master/lang_model_yelp/data/yelp.valid.txt'],
+    'YahooAnswers':
+        ['https://raw.githubusercontent.com/fangleai/Implicit-LVM/master/lang_model_yahoo/data/train.txt',
+         'https://raw.githubusercontent.com/fangleai/Implicit-LVM/master/lang_model_yahoo/data/test.txt',
+         'https://raw.githubusercontent.com/fangleai/Implicit-LVM/master/lang_model_yahoo/data/val.txt']
 }
 
 DATASETS = {
 
     "YelpReviewPolarity": YelpReviewPolarity,
+    "YahooAnswers": YahooAnswers
 
 }
 
