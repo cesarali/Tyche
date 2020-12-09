@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 import torch
 from nltk.tokenize import TweetTokenizer
 from torch.utils.data.dataloader import DataLoader
-from tyche.data.experimental.datasets import WikiText2, WikiText103, PennTreebank, YelpReviewPolarity, YahooAnswers
+from tyche.data.experimental.datasets import WikiText2, WikiText103, PennTreebank, YelpReviewPolarity, YelpReviewFull, YahooAnswers
 
 sampler = torch.utils.data.RandomSampler
 
