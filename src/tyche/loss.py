@@ -4,6 +4,7 @@ from torch import nn as nn
 from torch.nn.modules.loss import CrossEntropyLoss, _Loss
 import math
 import numpy as np
+from typing import List
 
 from tyche.utils import param_scheduler as p_scheduler
 
@@ -37,6 +38,43 @@ def kullback_leibler_two_gaussians(mean1, sigma1, mean2, sigma2, reduction='mean
         return torch.sum(skl)
     else:
         return skl
+
+
+class MMDPenalty(object):
+    scales: List[float]
+    latent_dim: int
+
+    def __init__(self, latent_dim: int, scales: List[float]):
+        self.scales = scales
+        self.latent_dim = latent_dim
+
+    def __call__(self, z_prior: torch.Tensor, z_post: torch.Tensor):
+        batch_size = z_prior.size(0)
+
+        norms_prior = z_prior.pow(2).sum(1, keepdim=True)
+        prods_prior = torch.mm(z_prior, z_prior.t())
+        dists_prior = norms_prior + norms_prior.t() - 2 * prods_prior
+
+        norms_post = z_post.pow(2).sum(1, keepdim=True)
+        prods_post = torch.mm(z_post, z_post.t())
+        dists_post = norms_post + norms_post.t() - 2 * prods_post
+
+        dot_prd = torch.mm(z_prior, z_post.t())
+        dist_dist = norms_prior + norms_post.t() - 2 * dot_prd
+
+        total_dist = 0
+        for scale in self.scales:
+            C = 2 * self.latent_dim * 1.0 * scale
+            dist1 = C / (C + dists_prior)
+            dist1 += C / (C + dists_post)
+
+            dist1 = (1 - torch.eye(batch_size, device=z_prior.device)) * dist1
+
+            dist1 = dist1.sum() / (batch_size - 1)
+            res2 = C / (C + dist_dist)
+            res2 = res2.sum() * 2. / (batch_size)
+            total_dist += dist1 - res2
+        return total_dist
 
 
 def mim_reg(mean, sigma, reduction='mean'):

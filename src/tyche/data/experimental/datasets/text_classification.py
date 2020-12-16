@@ -58,6 +58,9 @@ class TextClassificationDataset(torch.utils.data.Dataset):
         self.__n_unsupervised = data.pop('n_unsupervised', None)
         self.data = data
         self.vocab = vocab
+        self.PAD = '<pad>'
+        self.SOS = '<sos>'
+        self.EOS = '<eos>'
 
         self.__get_item = self.__get_item_supervised if self.__n_supervised is None else self.__get_item_semisupervised
 
@@ -95,6 +98,29 @@ class TextClassificationDataset(torch.utils.data.Dataset):
     @vocab.setter
     def vocab(self, v):
         self.__vocab = v
+
+    def reverse(self, batch):
+
+        with torch.cuda.device_of(batch):
+            batch = batch.tolist()
+        batch = [[self.vocab.itos[ind] for ind in ex] for ex in batch]  # denumericalize
+
+        def trim(s, t):
+            sentence = []
+            for w in s:
+                if w == t:
+                    break
+                sentence.append(w)
+            return sentence
+
+        batch = [trim(ex, self.EOS) for ex in batch]  # trim past frst eos
+
+        def filter_special(tok):
+            return tok not in (self.SOS, self.PAD)
+
+        batch = [filter(filter_special, ex) for ex in batch]
+
+        return [' '.join(ex) for ex in batch]
 
 
 # adds labels at the beginning of lines for YahooAnswers
