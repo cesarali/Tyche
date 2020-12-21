@@ -178,7 +178,6 @@ def _setup_datasets(
     for item in data_select:
         _path[item] = _get_datafile_path(item, extracted_files)
 
-
     if vocab is None:
         if 'train' not in _path.keys():
             raise TypeError("Must pass a vocab if train is not selected.")
@@ -197,7 +196,7 @@ def _setup_datasets(
     for item in _path.keys():
         logging.info('Creating {} data'.format(item))
         f = io.open(_path[item], encoding="utf8")
-        tokenize = lambda text, sentiment: (tokenizer(text), sentiment)
+        tokenize = lambda sentiment, text: (sentiment, tokenizer(text))
         txt_iter = iter(tokenize(*row.split('\t')) for row in f)
         _iter = numericalize(vocab, txt_iter)
         idx = 0
@@ -366,6 +365,7 @@ def YahooAnswers(*args, **kwargs):
     kwargs['root'] += '/yahoo'
 
     return _setup_datasets(*(("YahooAnswers",) + args), **kwargs)
+
 
 URLS = {
     'WikiText2':
