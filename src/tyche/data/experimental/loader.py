@@ -300,6 +300,7 @@ class DataLoaderSemiSupervised(ADataLoader):
         :param world_size:
         :param supervised_proportion: the proportion of the data with masked labels,
         :param kwargs:
+        :param dataset: [YelpReviewPolarity, YelpReviewFull, YahooAnswers]
         """
 
         dataset = eval(kwargs.pop('dataset'))
