@@ -61,3 +61,17 @@ class LinearScheduler(object):
             return min(1., float(step) / self.max_steps)
         else:
             return min(1., self.start_value + float(step) / self.max_steps * (1 - self.start_value))
+
+class MultiplicativeScheduler(object):
+    """
+    Multiplies current value by multiplier each step until end_value is reached
+    """
+
+    def __init__(self, **kwargs):
+        self.start_value = kwargs.get('start_value', 1)
+        self.end_value = kwargs.get('end_value', 0)
+        self.multiplier = kwargs.get('multiplier', .9)
+
+    def __call__(self, step):
+        beta = self.start_value * self.multiplier**step
+        return min(self.end_value, beta) if self.multiplier > 1 else max(self.end_value, beta)
