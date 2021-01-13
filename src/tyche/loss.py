@@ -25,6 +25,7 @@ def kullback_leibler(mean, sigma, reduction='mean'):
     else:
         return skl
 
+
 def kullback_leibler_two_gaussians(mean1, sigma1, mean2, sigma2, reduction='mean'):
     """
     Kullback-Leibler divergence between two Gaussians
@@ -38,6 +39,64 @@ def kullback_leibler_two_gaussians(mean1, sigma1, mean2, sigma2, reduction='mean
         return torch.sum(skl)
     else:
         return skl
+
+
+def log_of_gaussian_pdf(x, mean, sigma, reduction='mean'):
+    """
+    x, mean, sigma: [B, D]
+    Note that we omitted the constant factor -0.5 * log(2 * pi)
+    """
+
+    rop = - torch.sum(torch.log(sigma) + (x - mean) * (x - mean) / (2 * sigma * sigma), dim=-1)
+
+    if reduction == 'mean':
+        return torch.mean(rop)
+    elif reduction == 'sum':
+        return torch.sum(rop)
+    else:
+        return rop
+
+
+def log_multinomial_pdf(x, pi, reduction='mean'):
+    """
+    x, pi: [B, n_classes]
+    """
+    rop = torch.sum(x * torch.log(pi), dim=-1)
+
+    if reduction == 'mean':
+        return torch.mean(rop)
+    elif reduction == 'sum':
+        return torch.sum(rop)
+    else:
+        return rop
+
+
+class SlicedWasserstein(object):
+    n_projections: int
+    cost_p_norm: int
+
+    def __init__(self, n_projections: int, cost_p_norm: int):
+        self.n_projections = n_projections
+        self.cost_p_norm = cost_p_norm
+
+    def __call__(self, x: torch.Tensor, y: torch.Tensor, device: torch.device):
+        """
+        x, y: [B, D]
+        """
+        batch_size, emb_dim = x.shape
+        theta = self._get_projections(emb_dim, device)  # [N, D]
+        x_ = torch.einsum('bi,ni->bn', x, theta)  # [B, N]
+        x_ = torch.sort(x_, dim=0)[0]
+        y_ = torch.einsum('bi,ni->bn', y, theta)  # [B, N]
+        y_ = torch.sort(y_, dim=0)[0]
+        cost = torch.pow(torch.abs(x_ - y_), self.cost_p_norm)
+        cost = torch.sum(cost) / float(batch_size) / float(self.n_projections)
+        return cost
+
+    def _get_projections(self, emb_dim, device):
+        theta = torch.randn(self.n_projections, emb_dim, device=device)
+        theta = torch.nn.functional.normalize(theta, dim=-1)
+        return theta
 
 
 class MMDPenalty(object):

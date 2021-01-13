@@ -145,6 +145,9 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
                     else:
                         value['scheduler'].step()
                         value['counter'] = value['default_counter']
+            else:
+                for key, value in self.lr_schedulers.items():
+                    value['counter'] = value['default_counter']
 
     def _check_early_stopping(self) -> bool:
         cond = list(filter(lambda x: x['opt'].param_groups[0]["lr"] < float(x['min_lr_rate']), self.optimizer.values()))
