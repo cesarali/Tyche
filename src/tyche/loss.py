@@ -8,7 +8,6 @@ from typing import List
 
 from tyche.utils import param_scheduler as p_scheduler
 
-
 def kullback_leibler(mean, sigma, reduction='mean'):
     """
     Kullback-Leibler divergence between Gaussian posterior distr.
