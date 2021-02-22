@@ -10,6 +10,7 @@ import matplotlib
 import torch
 import torch.distributed as dist
 import tqdm
+import numpy as np
 import yaml
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
@@ -119,7 +120,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
             self._anneal_lr(validate_log)
             self._update_p_bar(e_bar, train_log, validate_log, test_log)
             self._booking_model(epoch, train_log, validate_log)
-            if self._check_early_stopping():
+            if self._check_early_stopping(validate_log):
                 break
         self._clear_logging_resources(e_bar)
         return self.best_model
@@ -149,9 +150,10 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
                 for key, value in self.lr_schedulers.items():
                     value['counter'] = value['default_counter']
 
-    def _check_early_stopping(self) -> bool:
+    def _check_early_stopping(self, log: dict) -> bool:
         cond = list(filter(lambda x: x['opt'].param_groups[0]["lr"] < float(x['min_lr_rate']), self.optimizer.values()))
-        return len(cond) != 0
+        loss = log['loss']
+        return len(cond) != 0 or np.isinf(loss) or np.isnan(loss)
 
     def _train_epoch(self, epoch: int) -> dict:
         self.model.train()
