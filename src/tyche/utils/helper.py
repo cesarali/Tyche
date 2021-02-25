@@ -310,7 +310,7 @@ def gumbel_softmax_sample(pi, tau, device, epsilon=1e-12):
     return torch.nn.functional.softmax(y / tau, dim=-1)
 
 
-def gumbel_softmax(pi, tau, device):
+def gumbel_softmax(pi, tau, device, hard=True):
     """
     Gumbel-Softmax distribution.
     Implementation from https://github.com/ericjang/gumbel-softmax.
@@ -319,12 +319,15 @@ def gumbel_softmax(pi, tau, device):
     Returns [B, ..., n_classes] as a one-hot vector
     """
     y = gumbel_softmax_sample(pi, tau, device)
-    shape = y.size()
-    _, ind = y.max(dim=-1)  # [B, ...]
-    y_hard = torch.zeros_like(y).view(-1, shape[-1])
-    y_hard.scatter_(1, ind.view(-1, 1), 1)
-    y_hard = y_hard.view(*shape)
-    return (y_hard - y).detach() + y
+    if hard:
+        shape = y.size()
+        _, ind = y.max(dim=-1)  # [B, ...]
+        y_hard = torch.zeros_like(y).view(-1, shape[-1])
+        y_hard.scatter_(1, ind.view(-1, 1), 1)
+        y_hard = y_hard.view(*shape)
+        return (y_hard - y).detach() + y
+    else:
+        return y
 
 
 def gumbel_softmax_argmax(pi, tau, device):
