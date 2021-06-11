@@ -432,3 +432,8 @@ def get_file_line_number(file_path: str) -> int:
             lines += buf.count('\n')
             buf = read_f(buf_size)
         return lines
+
+
+def get_independent_opts(params: dict) -> bool:
+    independent_opts = params["trainer"]["args"]["independent_optimizers"]
+    return independent_opts
