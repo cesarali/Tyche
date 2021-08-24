@@ -1,5 +1,6 @@
 from .language_modeling import LanguageModelingDataset, WikiText2, WikiText103, PennTreebank  # NOQA
 from .text_classification import YelpReviewPolarity, YelpReviewFull, YahooAnswers
+from .pretrained import PennTreebankPretrained
 
 __all__ = ['LanguageModelingDataset',
            'WikiText2',
@@ -7,4 +8,5 @@ __all__ = ['LanguageModelingDataset',
            'PennTreebank',
            'YelpReviewPolarity',
            'YelpReviewFull',
-           'YahooAnswers']
+           'YahooAnswers',
+           'PennTreebankPretrained']

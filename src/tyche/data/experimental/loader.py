@@ -3,7 +3,8 @@ from abc import ABC, abstractmethod
 import torch
 from nltk.tokenize import TweetTokenizer
 from torch.utils.data.dataloader import DataLoader
-from tyche.data.experimental.datasets import WikiText2, WikiText103, PennTreebank, YelpReviewPolarity, YelpReviewFull, YahooAnswers
+from tyche.data.experimental.datasets import WikiText2, WikiText103, PennTreebank, YelpReviewPolarity, YelpReviewFull,\
+    YahooAnswers, PennTreebankPretrained
 
 sampler = torch.utils.data.RandomSampler
 
@@ -329,6 +330,57 @@ class DataLoaderSemiSupervised(ADataLoader):
         vocab = train_dataset.vocab
         vocab.load_vectors(self.emb_dim, unk_init=None, cache=self.path_to_vectors)
         self.train_vocab = vocab
+
+    @property
+    def train(self):
+        return self._train_iter
+
+    @property
+    def test(self):
+        return self._test_iter
+
+    @property
+    def validate(self):
+        return self._valid_iter
+
+    @property
+    def vocab(self):
+        return self.train_vocab
+
+    @property
+    def fix_len(self):
+        return self._fix_length
+
+
+class DataLoaderPTBPretrained(ADataLoader):
+    def __init__(self, device, rank: int = 0, world_size=-1, **kwargs):
+        path_to_data = kwargs.pop('path_to_data')
+        super().__init__(device, rank, world_size, **kwargs)
+        min_len = kwargs.pop('min_len')
+        fix_len = kwargs.pop('fix_len')
+        pretrained_model = kwargs.pop('pretrained_model')
+        train_dataset, test_dataset, valid_dataset = PennTreebankPretrained(root=path_to_data,
+                                                                            pretrained_model=pretrained_model,
+                                                                            fix_len=fix_len,
+                                                                            min_len=min_len)
+
+        train_sampler = None
+        valid_sampler = None
+        test_sampler = None
+        if self.world_size != -1:
+            train_sampler = DistributedSampler(train_dataset, self.world_size, self.rank)
+            valid_sampler = DistributedSampler(valid_dataset, self.world_size, self.rank)
+            test_sampler = DistributedSampler(test_dataset, self.world_size, self.rank)
+
+        self._train_iter = DataLoader(train_dataset, drop_last=True, sampler=train_sampler,
+                                      shuffle=train_sampler is None, **kwargs)
+        self._valid_iter = DataLoader(valid_dataset, drop_last=True, sampler=valid_sampler,
+                                      shuffle=valid_sampler is None, **kwargs)
+        self._test_iter = DataLoader(test_dataset, drop_last=True, sampler=test_sampler,
+                                     shuffle=test_sampler is None, **kwargs)
+        vocab = train_dataset.get_vocab()
+        self.train_vocab = vocab
+        self._fix_length = fix_len
 
     @property
     def train(self):
