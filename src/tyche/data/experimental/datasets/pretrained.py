@@ -8,7 +8,6 @@ from tqdm import tqdm
 from tyche.data.experimental.datasets.language_modeling import LanguageModelingDataset, _get_datafile_path
 import torch
 from torchtext.utils import download_from_url, extract_archive
-from tyche.data.experimental.datasets.my_tokenization_gpt2_fast import GPT2TokenizerLowerCase
 from transformers import GPT2TokenizerFast, BertTokenizerFast
 import regex as re
 
@@ -49,9 +48,9 @@ class LanguageModelingDatasetPretrained(LanguageModelingDataset):
         self.data = data
         self.tokenizer_list = tokenizer_list
 
-        self.PAD = tokenizer_list[0].pad_token
-        self.SOS = tokenizer_list[0].bos_token
-        self.EOS = tokenizer_list[0].eos_token
+        self.PAD = tokenizer_list[-1].pad_token
+        self.SOS = tokenizer_list[-1].bos_token
+        self.EOS = tokenizer_list[-1].eos_token
 
     def __getitem__(self, i):
         minibatch = dict()
@@ -108,19 +107,21 @@ def _setup_datasets(dataset_name, fix_len, min_len=0, min_freq=1,
     for model_name in pretrained_tokenizer:
         if model_name == 'GPT2':
             tokenizer = GPT2TokenizerFast.from_pretrained('gpt2')
+            tokenizer.add_special_tokens({'unk_token': '<unk>',
+                                          'pad_token': '<pad>',
+                                          'bos_token': '<bos>',
+                                          'eos_token': '<eos>'})
         elif model_name == 'BERT':
             tokenizer = BertTokenizerFast.from_pretrained('bert-base-uncased')
+            tokenizer.add_special_tokens({'unk_token': '<unk>',
+                                          'pad_token': '<pad>',
+                                          'bos_token': '<bos>',
+                                          'eos_token': '<eos>'})
         else:
             raise ValueError('pretrained tokenizer {} not supported! Choose one of [GPT2, BERT]'.format(model_name))
         tokenizer_list.append(tokenizer)
 
 
-
-    for tokenizer in tokenizer_list:
-        tokenizer.add_special_tokens({'unk_token': '<unk>',
-                                      'pad_token': '<pad>',
-                                      'bos_token': '<bos>',
-                                      'eos_token': '<eos>'})
 
     if dataset_name == 'PennTreebankPretrained':
         extracted_files = []
@@ -157,10 +158,6 @@ def _setup_datasets(dataset_name, fix_len, min_len=0, min_freq=1,
 
     data = dict()
 
-    SOS = tokenizer_list[0].bos_token_id
-    EOS = tokenizer_list[0].eos_token_id
-    PAD = tokenizer_list[0].pad_token_id
-
     vocab_list = [tokenizer.get_vocab() for tokenizer in tokenizer_list]
     for item in _path.keys():
         data_set = defaultdict(lambda: defaultdict(dict))
@@ -172,6 +169,10 @@ def _setup_datasets(dataset_name, fix_len, min_len=0, min_freq=1,
             if dataset_name == 'WikiText2Pretrained' and (row == '' or row[0] == '='):
                 continue
             for t_id, tokenizer in enumerate(tokenizer_list):
+                SOS = tokenizer_list[0].bos_token_id
+                EOS = tokenizer_list[0].eos_token_id
+                PAD = tokenizer_list[0].pad_token_id
+
                 tokens_attns = tokenizer(row)
                 tokens = tokens_attns['input_ids']
                 tokens_ = [token_id for token_id in tokens]
