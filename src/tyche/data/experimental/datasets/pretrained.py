@@ -20,7 +20,11 @@ URLS = {
     'PennTreebankPretrained':
         ['https://raw.githubusercontent.com/wojzaremba/lstm/master/data/ptb.train.txt',
          'https://raw.githubusercontent.com/wojzaremba/lstm/master/data/ptb.test.txt',
-         'https://raw.githubusercontent.com/wojzaremba/lstm/master/data/ptb.valid.txt']
+         'https://raw.githubusercontent.com/wojzaremba/lstm/master/data/ptb.valid.txt'],
+    'YahooAnswersPretrained':
+        ['https://raw.githubusercontent.com/fangleai/Implicit-LVM/master/lang_model_yahoo/data/train.txt',
+         'https://raw.githubusercontent.com/fangleai/Implicit-LVM/master/lang_model_yahoo/data/test.txt',
+         'https://raw.githubusercontent.com/fangleai/Implicit-LVM/master/lang_model_yahoo/data/val.txt']
 }
 
 
@@ -28,20 +32,29 @@ class LanguageModelingDatasetPretrained(LanguageModelingDataset):
     """Defines a dataset for language modeling using pretrained tokenizers from huggingface transformers.
        Currently, we only support the following datasets:
 
-             - WikiText2
              - WikiText103
              - PennTreebank
+             - YahooAnswers
+
+        minibatches are dictionaries with the following content:
+            for t_id, tokenizer in enumerate(tokenizer_list):
+                'input_{t_id}': text tokenized by tokenizer with SOS at beginning
+                'target_{t_id}': text tokenized by tokenizer with EOS at the end
+                'length_{t_id}': number of tokens when tokenized by tokenizer
+                'attn_mask_{t_id}': attention mask for transformers
+            'label': label of the text in case of YahooAnswers
 
     """
 
-    def __init__(self, data, tokenizer_list):
-        """Initiate language modeling dataset.
+    def __init__(self, data, tokenizer_list, num_added_tokens):
+        """Initiate language modeling dataset using pretrained tokenizers from huggingface.
 
         Arguments:
             data: a tensor of tokens. tokens are ids after
                 numericalizing the string tokens.
                 torch.tensor([token_id_1, token_id_2, token_id_3, token_id1]).long()
-            vocab: Vocabulary object used for dataset.
+            tokenizer_list: list of huggingface tokenizers
+            num_added_tokens: number of tokens that were newly added to the vocabulary of each tokenizer
         """
 
         super(LanguageModelingDatasetPretrained, self).__init__(data, tokenizer_list)
@@ -51,23 +64,28 @@ class LanguageModelingDatasetPretrained(LanguageModelingDataset):
         self.PAD = tokenizer_list[-1].pad_token
         self.SOS = tokenizer_list[-1].bos_token
         self.EOS = tokenizer_list[-1].eos_token
+        self.num_added_tokens = num_added_tokens
 
     def __getitem__(self, i):
         minibatch = dict()
         for tok_id in range(len(self.tokenizer_list)):
             minibatch.update({'input_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['input'], dtype=np.int64),
-                               'target_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['target'], dtype=np.int64),
-                               'length_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['length']),
-                               'attn_mask_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['attn_mask'])})
+                              'target_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['target'], dtype=np.int64),
+                              'length_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['length']),
+                              'attn_mask_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['attn_mask'])})
+        if 'label' in self.data[i][0].keys():
+            minibatch.update({'label': np.asarray(self.data[i][0]['label'])})
         return minibatch
 
     def __iter__(self):
         for i in range(self.__len__()):
             yield self[i]
 
-
     def get_pad_token_id(self):
-        return self.tokenizer_list[0].pad_token_id
+        return self.tokenizer_list[-1].pad_token_id
+
+    def get_num_added_tokens(self):
+        return self.num_added_tokens
 
     def reverse(self, batch):
 
@@ -83,7 +101,7 @@ class LanguageModelingDatasetPretrained(LanguageModelingDataset):
                 sentence.append(w)
             return sentence
 
-        batch = [trim(ex[1:], self.EOS) for ex in batch]  # trim past first eos
+        batch = [trim(ex, self.EOS) for ex in batch]  # trim past first eos
 
         def filter_special(tok):
             return tok not in (self.SOS, self.PAD)
@@ -92,6 +110,20 @@ class LanguageModelingDatasetPretrained(LanguageModelingDataset):
 
         return [' '.join(ex) for ex in batch]
 
+# add label at beginning of each line
+def preprocess_yahoo(file):
+    src = open(file, "rt")
+    label = -1
+    file_iter = [row for row in src]
+    data = ''
+    for i, line in enumerate(file_iter):
+        if i % (len(file_iter) / 10) == 0:
+            label += 1
+        data += str(label) + '\t' + line
+    src.close()
+    dest = open(file, "wt")
+    dest.write(data)
+    dest.close()
 
 def _setup_datasets(dataset_name, fix_len, min_len=0, min_freq=1,
                     pretrained_tokenizer=['GPT2', 'GPT2'],
@@ -102,30 +134,34 @@ def _setup_datasets(dataset_name, fix_len, min_len=0, min_freq=1,
     if not set(data_select).issubset({'train', 'test', 'valid'}):
         raise TypeError('data_select is not supported!')
 
+    if dataset_name == 'PennTreebankPretrained':
+        special_tokens = {'unk_token': '<unk>',
+                          'pad_token': '<pad>',
+                          'bos_token': '<bos>',
+                          'eos_token': '<eos>'}
+    elif dataset_name == 'YahooAnswersPretrained':
+        special_tokens = {'unk_token': '_UNK',
+                          'pad_token': '<pad>',
+                          'bos_token': '<bos>',
+                          'eos_token': '<eos>'}
+
     # get the pretrained tokenizers
     tokenizer_list = []
     for model_name in pretrained_tokenizer:
         if model_name == 'GPT2':
             tokenizer = GPT2TokenizerFast.from_pretrained('gpt2')
-            tokenizer.add_special_tokens({'unk_token': '<unk>',
-                                          'pad_token': '<pad>',
-                                          'bos_token': '<bos>',
-                                          'eos_token': '<eos>'})
         elif model_name == 'BERT':
             tokenizer = BertTokenizerFast.from_pretrained('bert-base-uncased')
-            tokenizer.add_special_tokens({'unk_token': '<unk>',
-                                          'pad_token': '<pad>',
-                                          'bos_token': '<bos>',
-                                          'eos_token': '<eos>'})
         else:
             raise ValueError('pretrained tokenizer {} not supported! Choose one of [GPT2, BERT]'.format(model_name))
+
+        tokenizer.add_special_tokens(special_tokens)
         tokenizer_list.append(tokenizer)
 
 
 
     if dataset_name == 'PennTreebankPretrained':
         extracted_files = []
-
         select_to_index = {'train': 0, 'test': 1, 'valid': 2}
         for key in data_select:
             url_ = URLS['PennTreebankPretrained'][select_to_index[key]]
@@ -135,6 +171,19 @@ def _setup_datasets(dataset_name, fix_len, min_len=0, min_freq=1,
                 extracted_files.append(path_)
             else:
                 extracted_files.append(download_from_url(url_, root=root))
+
+    elif dataset_name == 'YahooAnswersPretrained':
+        extracted_files = []
+        select_to_index = {'train': 0, 'test': 1, 'valid': 2}
+        for key in data_select:
+            url_ = URLS['YahooAnswersPretrained'][select_to_index[key]]
+            _, filename = os.path.split(url_)
+            path_ = os.path.join(root, filename)
+            if not os.path.exists(path_.replace('val', 'valid')):
+                path_ = download_from_url(url_, root=root)
+                preprocess_yahoo(path_)
+                os.rename(path_, path_.replace('val', 'valid'))
+            extracted_files.append(path_.replace('val', 'valid'))
 
     elif dataset_name in URLS:
         url_ = URLS[dataset_name]
@@ -165,13 +214,17 @@ def _setup_datasets(dataset_name, fix_len, min_len=0, min_freq=1,
         _iter = iter(row for row in io.open(_path[item], encoding="utf8"))
         id = 0
         for row in tqdm(_iter, unit='data point', desc=f'Preparing {item} dataset'):
-            row = row[:-2]  # remove white space and \n in the end of each line
+            row = row[:-1]  # remove \n at the end of each line
             if dataset_name == 'WikiText2Pretrained' and (row == '' or row[0] == '='):
                 continue
             for t_id, tokenizer in enumerate(tokenizer_list):
-                SOS = tokenizer_list[0].bos_token_id
-                EOS = tokenizer_list[0].eos_token_id
-                PAD = tokenizer_list[0].pad_token_id
+                SOS = tokenizer.bos_token_id
+                EOS = tokenizer.eos_token_id
+                PAD = tokenizer.pad_token_id
+
+                if dataset_name == 'YahooAnswersPretrained':
+                    data_set[id][0]['label'] = int(row[0])
+                    row = row[2:]
 
                 tokens_attns = tokenizer(row)
                 tokens = tokens_attns['input_ids']
@@ -191,6 +244,7 @@ def _setup_datasets(dataset_name, fix_len, min_len=0, min_freq=1,
                 data_set[id][t_id]['target'] = target_ + [PAD] * (fix_len - size)
                 data_set[id][t_id]['length'] = size
                 data_set[id][t_id]['attn_mask'] = attn_mask + [1] + [0] * (fix_len - size)
+
             id += 1
         data[item] = data_set
     for key in data_select:
@@ -198,7 +252,7 @@ def _setup_datasets(dataset_name, fix_len, min_len=0, min_freq=1,
             raise TypeError('Dataset {} is empty!'.format(key))
 
 
-    return tuple(LanguageModelingDatasetPretrained(data[d], tokenizer_list) for d in data_select)
+    return tuple(LanguageModelingDatasetPretrained(data[d], tokenizer_list, len(special_tokens)) for d in data_select)
 
 
 def PennTreebankPretrained(*args, **kwargs):
@@ -231,5 +285,5 @@ def PennTreebankPretrained(*args, **kwargs):
 
     return _setup_datasets(*(("PennTreebankPretrained",) + args), **kwargs)
 
-def WikiText2Pretrained(*args, **kwargs):
-    return _setup_datasets(*(("WikiText2Pretrained",) + args), **kwargs)
+def YahooAnswersPretrained(*args, **kwargs):
+    return _setup_datasets(*(("YahooAnswersPretrained",) + args), **kwargs)

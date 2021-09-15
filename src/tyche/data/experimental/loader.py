@@ -4,7 +4,7 @@ import torch
 from nltk.tokenize import TweetTokenizer
 from torch.utils.data.dataloader import DataLoader
 from tyche.data.experimental.datasets import WikiText2, WikiText103, PennTreebank, YelpReviewPolarity, YelpReviewFull,\
-    YahooAnswers, PennTreebankPretrained, WikiText2Pretrained
+    YahooAnswers, PennTreebankPretrained, YahooAnswersPretrained
 
 sampler = torch.utils.data.RandomSampler
 
@@ -354,7 +354,7 @@ class DataLoaderSemiSupervised(ADataLoader):
 
 class DataLoaderPTBPretrained(ADataLoader):
     """
-    .vocab returns pad_token_id, not vocab (only here for compatibility with the trainers)
+    Data loader for PTB with pretrained tokenizers and models from huggingface
     """
     def __init__(self, device, rank: int = 0, world_size=-1, **kwargs):
         path_to_data = kwargs.pop('path_to_data')
@@ -385,6 +385,7 @@ class DataLoaderPTBPretrained(ADataLoader):
                                      shuffle=test_sampler is None, **kwargs)
         self._pad_token_id = train_dataset.get_pad_token_id()
         self._fix_length = fix_len
+        self._num_added_tokens = train_dataset.get_num_added_tokens()
 
     @property
     def train(self):
@@ -399,17 +400,25 @@ class DataLoaderPTBPretrained(ADataLoader):
         return self._valid_iter
 
     @property
-    def vocab(self):
+    def pad_token_id(self):
         return self._pad_token_id
 
     @property
     def fix_len(self):
         return self._fix_length
 
+    @property
+    def num_added_tokens(self):
+        return self._num_added_tokens
 
-class DataLoaderWiki2Pretrained(ADataLoader):
+    @property
+    def vocab(self): # for compatibility with TextTrainer
+        return None
+
+
+class DataLoaderYahooPretrained(ADataLoader):
     """
-    .vocab returns pad_token_id, not vocab (only here for compatibility with the trainers)
+    Data loader for YahooAnswers with pretrained tokenizers and models from huggingface
     """
     def __init__(self, device, rank: int = 0, world_size=-1, **kwargs):
         path_to_data = kwargs.pop('path_to_data')
@@ -419,7 +428,7 @@ class DataLoaderWiki2Pretrained(ADataLoader):
         pretrained_tokenizer = kwargs.pop('pretrained_tokenizer', None)
         assert pretrained_tokenizer is not None, 'no pretrained tokenizer specified'
 
-        train_dataset, test_dataset, valid_dataset = WikiText2Pretrained(root=path_to_data,
+        train_dataset, test_dataset, valid_dataset = YahooAnswersPretrained(root=path_to_data,
                                                                             pretrained_tokenizer=pretrained_tokenizer,
                                                                             fix_len=fix_len,
                                                                             min_len=min_len)
@@ -440,6 +449,7 @@ class DataLoaderWiki2Pretrained(ADataLoader):
                                      shuffle=test_sampler is None, **kwargs)
         self._pad_token_id = train_dataset.get_pad_token_id()
         self._fix_length = fix_len
+        self._num_added_tokens = train_dataset.get_num_added_tokens()
 
     @property
     def train(self):
@@ -454,10 +464,21 @@ class DataLoaderWiki2Pretrained(ADataLoader):
         return self._valid_iter
 
     @property
-    def vocab(self):
+    def pad_token_id(self):
         return self._pad_token_id
 
     @property
     def fix_len(self):
         return self._fix_length
+
+    @property
+    def num_added_tokens(self):
+        return self._num_added_tokens
+
+    @property
+    def vocab(self): # for compatibility with TextTrainer
+        return None
+
+
+
 
