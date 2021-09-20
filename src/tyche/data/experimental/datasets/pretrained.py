@@ -10,6 +10,7 @@ import torch
 from torchtext.utils import download_from_url, extract_archive
 from transformers import GPT2TokenizerFast, BertTokenizerFast
 import regex as re
+import json
 
 
 URLS = {
@@ -106,11 +107,11 @@ class LanguageModelingDatasetPretrained(LanguageModelingDataset):
         def filter_special(tok):
             return tok not in (self.SOS, self.PAD)
 
-        batch = [filter(filter_special, ex) for ex in batch]
+        batch = list(filter(filter_special, ex) for ex in batch)
 
         return [' '.join(ex) for ex in batch]
 
-# add label at beginning of each line
+# add label at beginning of each line of yahoo
 def preprocess_yahoo(file):
     src = open(file, "rt")
     label = -1
@@ -120,6 +121,22 @@ def preprocess_yahoo(file):
         if i % (len(file_iter) / 10) == 0:
             label += 1
         data += str(label) + '\t' + line
+    src.close()
+    dest = open(file, "wt")
+    dest.write(data)
+    dest.close()
+# remove empty lines and section headers from wiki103
+def preprocess_wiki103(file):
+    src = open(file, "rt")
+    label = -1
+    file_iter = [row for row in src]
+    data = ''
+    for i, line in enumerate(file_iter):
+        if len(line) <= 2:
+            continue
+        if line.count(' = ') >= 2:
+            continue
+        data += line
     src.close()
     dest = open(file, "wt")
     dest.write(data)
@@ -134,16 +151,19 @@ def _setup_datasets(dataset_name, fix_len, min_len=0, min_freq=1,
     if not set(data_select).issubset({'train', 'test', 'valid'}):
         raise TypeError('data_select is not supported!')
 
-    if dataset_name == 'PennTreebankPretrained':
+    if dataset_name in ['PennTreebankPretrained', 'WikiText103Pretrained']:
+        extra_tokens = []
         special_tokens = {'unk_token': '<unk>',
                           'pad_token': '<pad>',
                           'bos_token': '<bos>',
                           'eos_token': '<eos>'}
     elif dataset_name == 'YahooAnswersPretrained':
+        extra_tokens = []
         special_tokens = {'unk_token': '_UNK',
                           'pad_token': '<pad>',
                           'bos_token': '<bos>',
                           'eos_token': '<eos>'}
+
 
     # get the pretrained tokenizers
     tokenizer_list = []
@@ -155,6 +175,7 @@ def _setup_datasets(dataset_name, fix_len, min_len=0, min_freq=1,
         else:
             raise ValueError('pretrained tokenizer {} not supported! Choose one of [GPT2, BERT]'.format(model_name))
 
+        tokenizer.add_tokens(extra_tokens)
         tokenizer.add_special_tokens(special_tokens)
         tokenizer_list.append(tokenizer)
 
@@ -185,13 +206,23 @@ def _setup_datasets(dataset_name, fix_len, min_len=0, min_freq=1,
                 os.rename(path_, path_.replace('val', 'valid'))
             extracted_files.append(path_.replace('val', 'valid'))
 
-    elif dataset_name in URLS:
+    elif dataset_name == 'WikiText103Pretrained':
         url_ = URLS[dataset_name]
         _, filename = os.path.split(url_)
         dataset_tar = os.path.join(root, filename)
         if not os.path.exists(dataset_tar):
             dataset_tar = download_from_url(url_, root=root)
         extracted_files = extract_archive(dataset_tar)
+        for file in extracted_files:
+            preprocess_wiki103(file)
+
+    elif dataset_name == 'Atomic2':
+        filename = 'atomic_preprocessed.zip'
+        path = os.path.join(root, filename)
+
+        extracted_file = extract_archive(path)
+        print(extracted_file)
+
     else:
         extracted_files = []
         for key in data_select:
@@ -217,16 +248,15 @@ def _setup_datasets(dataset_name, fix_len, min_len=0, min_freq=1,
             row = row[:-1]  # remove \n at the end of each line
             if dataset_name == 'WikiText2Pretrained' and (row == '' or row[0] == '='):
                 continue
+            if dataset_name == 'YahooAnswersPretrained':
+                data_set[id][0]['label'] = int(row[0])
+                row_ = row[2:]
             for t_id, tokenizer in enumerate(tokenizer_list):
                 SOS = tokenizer.bos_token_id
                 EOS = tokenizer.eos_token_id
                 PAD = tokenizer.pad_token_id
 
-                if dataset_name == 'YahooAnswersPretrained':
-                    data_set[id][0]['label'] = int(row[0])
-                    row = row[2:]
-
-                tokens_attns = tokenizer(row)
+                tokens_attns = tokenizer(row, truncation=True, max_length=fix_len-1)
                 tokens = tokens_attns['input_ids']
                 tokens_ = [token_id for token_id in tokens]
                 size = len(tokens_)
@@ -253,6 +283,18 @@ def _setup_datasets(dataset_name, fix_len, min_len=0, min_freq=1,
 
 
     return tuple(LanguageModelingDatasetPretrained(data[d], tokenizer_list, len(special_tokens)) for d in data_select)
+
+def _setup_atomic(dataset_name, fix_len, min_len=0, min_freq=1,
+                    pretrained_tokenizer=['GPT2', 'GPT2'],
+                    root='./data',
+                    data_select=('train', 'test', 'valid'), ):
+    if isinstance(data_select, str):
+        data_select = [data_select]
+    if not set(data_select).issubset({'train', 'test', 'valid'}):
+        raise TypeError('data_select is not supported!')
+
+
+    return None
 
 
 def PennTreebankPretrained(*args, **kwargs):
@@ -285,5 +327,10 @@ def PennTreebankPretrained(*args, **kwargs):
 
     return _setup_datasets(*(("PennTreebankPretrained",) + args), **kwargs)
 
+
 def YahooAnswersPretrained(*args, **kwargs):
     return _setup_datasets(*(("YahooAnswersPretrained",) + args), **kwargs)
+
+
+def WikiText103Pretrained(*args, **kwargs):
+    return _setup_datasets(*(("WikiText103Pretrained",) + args), **kwargs)
