@@ -172,7 +172,6 @@ def _setup_datasets(dataset_name, fix_len, min_len=0, min_freq=1,
         else:
             raise ValueError('pretrained tokenizer {} not supported! Choose one of [GPT2, BERT]'.format(model_name))
 
-        tokenizer.add_tokens(extra_tokens)
         tokenizer.add_special_tokens(special_tokens)
         tokenizer_list.append(tokenizer)
 
@@ -212,13 +211,6 @@ def _setup_datasets(dataset_name, fix_len, min_len=0, min_freq=1,
         extracted_files = extract_archive(dataset_tar)
         for file in extracted_files:
             preprocess_wiki103(file)
-
-    elif dataset_name == 'Atomic2':
-        filename = 'atomic_preprocessed.zip'
-        path = os.path.join(root, filename)
-
-        extracted_file = extract_archive(path)
-        print(extracted_file)
 
     else:
         extracted_files = []
@@ -280,19 +272,6 @@ def _setup_datasets(dataset_name, fix_len, min_len=0, min_freq=1,
 
 
     return tuple(LanguageModelingDatasetPretrained(data[d], tokenizer_list, len(special_tokens)) for d in data_select)
-
-def _setup_atomic(dataset_name, fix_len, min_len=0, min_freq=1,
-                    pretrained_tokenizer=['GPT2', 'GPT2'],
-                    root='./data',
-                    data_select=('train', 'test', 'valid'), ):
-    if isinstance(data_select, str):
-        data_select = [data_select]
-    if not set(data_select).issubset({'train', 'test', 'valid'}):
-        raise TypeError('data_select is not supported!')
-
-
-    return None
-
 
 def PennTreebankPretrained(*args, **kwargs):
     def PennTreebank(*args, **kwargs):
