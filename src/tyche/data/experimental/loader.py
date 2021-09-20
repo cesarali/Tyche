@@ -4,7 +4,7 @@ import torch
 from nltk.tokenize import TweetTokenizer
 from torch.utils.data.dataloader import DataLoader
 from tyche.data.experimental.datasets import WikiText2, WikiText103, PennTreebank, YelpReviewPolarity, YelpReviewFull,\
-    YahooAnswers, PennTreebankPretrained, YahooAnswersPretrained
+    YahooAnswers, PennTreebankPretrained, YahooAnswersPretrained, WikiText103Pretrained, Atomic2
 
 sampler = torch.utils.data.RandomSampler
 
@@ -430,6 +430,128 @@ class DataLoaderYahooPretrained(ADataLoader):
 
         train_dataset, test_dataset, valid_dataset = YahooAnswersPretrained(root=path_to_data,
                                                                             pretrained_tokenizer=pretrained_tokenizer,
+                                                                            fix_len=fix_len,
+                                                                            min_len=min_len)
+
+        train_sampler = None
+        valid_sampler = None
+        test_sampler = None
+        if self.world_size != -1:
+            train_sampler = DistributedSampler(train_dataset, self.world_size, self.rank)
+            valid_sampler = DistributedSampler(valid_dataset, self.world_size, self.rank)
+            test_sampler = DistributedSampler(test_dataset, self.world_size, self.rank)
+
+        self._train_iter = DataLoader(train_dataset, drop_last=True, sampler=train_sampler,
+                                      shuffle=train_sampler is None, **kwargs)
+        self._valid_iter = DataLoader(valid_dataset, drop_last=True, sampler=valid_sampler,
+                                      shuffle=valid_sampler is None, **kwargs)
+        self._test_iter = DataLoader(test_dataset, drop_last=True, sampler=test_sampler,
+                                     shuffle=test_sampler is None, **kwargs)
+        self._pad_token_id = train_dataset.get_pad_token_id()
+        self._fix_length = fix_len
+        self._num_added_tokens = train_dataset.get_num_added_tokens()
+
+    @property
+    def train(self):
+        return self._train_iter
+
+    @property
+    def test(self):
+        return self._test_iter
+
+    @property
+    def validate(self):
+        return self._valid_iter
+
+    @property
+    def pad_token_id(self):
+        return self._pad_token_id
+
+    @property
+    def fix_len(self):
+        return self._fix_length
+
+    @property
+    def num_added_tokens(self):
+        return self._num_added_tokens
+
+    @property
+    def vocab(self): # for compatibility with TextTrainer
+        return None
+
+class DataLoaderWiki103Pretrained(ADataLoader):
+    """
+    Data loader for YahooAnswers with pretrained tokenizers and models from huggingface
+    """
+    def __init__(self, device, rank: int = 0, world_size=-1, **kwargs):
+        path_to_data = kwargs.pop('path_to_data')
+        super().__init__(device, rank, world_size, **kwargs)
+        min_len = kwargs.pop('min_len')
+        fix_len = kwargs.pop('fix_len')
+        pretrained_tokenizer = kwargs.pop('pretrained_tokenizer', None)
+        assert pretrained_tokenizer is not None, 'no pretrained tokenizer specified'
+
+        train_dataset, test_dataset, valid_dataset = WikiText103Pretrained(root=path_to_data,
+                                                                            pretrained_tokenizer=pretrained_tokenizer,
+                                                                            fix_len=fix_len,
+                                                                            min_len=min_len)
+
+        train_sampler = None
+        valid_sampler = None
+        test_sampler = None
+        if self.world_size != -1:
+            train_sampler = DistributedSampler(train_dataset, self.world_size, self.rank)
+            valid_sampler = DistributedSampler(valid_dataset, self.world_size, self.rank)
+            test_sampler = DistributedSampler(test_dataset, self.world_size, self.rank)
+
+        self._train_iter = DataLoader(train_dataset, drop_last=True, sampler=train_sampler,
+                                      shuffle=train_sampler is None, **kwargs)
+        self._valid_iter = DataLoader(valid_dataset, drop_last=True, sampler=valid_sampler,
+                                      shuffle=valid_sampler is None, **kwargs)
+        self._test_iter = DataLoader(test_dataset, drop_last=True, sampler=test_sampler,
+                                     shuffle=test_sampler is None, **kwargs)
+        self._pad_token_id = train_dataset.get_pad_token_id()
+        self._fix_length = fix_len
+        self._num_added_tokens = train_dataset.get_num_added_tokens()
+
+    @property
+    def train(self):
+        return self._train_iter
+
+    @property
+    def test(self):
+        return self._test_iter
+
+    @property
+    def validate(self):
+        return self._valid_iter
+
+    @property
+    def pad_token_id(self):
+        return self._pad_token_id
+
+    @property
+    def fix_len(self):
+        return self._fix_length
+
+    @property
+    def num_added_tokens(self):
+        return self._num_added_tokens
+
+    @property
+    def vocab(self): # for compatibility with TextTrainer
+        return None
+
+class DataLoaderAtomic2(ADataLoader):
+    """
+    Data loader for YahooAnswers with pretrained tokenizers and models from huggingface
+    """
+    def __init__(self, device, rank: int = 0, world_size=-1, **kwargs):
+        path_to_data = kwargs.pop('path_to_data')
+        super().__init__(device, rank, world_size, **kwargs)
+        min_len = kwargs.pop('min_len')
+        fix_len = kwargs.pop('fix_len')
+        train_dataset, test_dataset, valid_dataset = Atomic2(root=path_to_data,
                                                                             fix_len=fix_len,
                                                                             min_len=min_len)
 
