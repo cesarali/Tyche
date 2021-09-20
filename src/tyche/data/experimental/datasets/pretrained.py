@@ -10,7 +10,6 @@ import torch
 from torchtext.utils import download_from_url, extract_archive
 from transformers import GPT2TokenizerFast, BertTokenizerFast
 import regex as re
-import json
 
 
 URLS = {
@@ -152,13 +151,11 @@ def _setup_datasets(dataset_name, fix_len, min_len=0, min_freq=1,
         raise TypeError('data_select is not supported!')
 
     if dataset_name in ['PennTreebankPretrained', 'WikiText103Pretrained']:
-        extra_tokens = []
         special_tokens = {'unk_token': '<unk>',
                           'pad_token': '<pad>',
                           'bos_token': '<bos>',
                           'eos_token': '<eos>'}
     elif dataset_name == 'YahooAnswersPretrained':
-        extra_tokens = []
         special_tokens = {'unk_token': '_UNK',
                           'pad_token': '<pad>',
                           'bos_token': '<bos>',
