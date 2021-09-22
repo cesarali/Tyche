@@ -357,7 +357,10 @@ class DataLoaderPTBPretrained(ADataLoader):
     Data loader for PTB with pretrained tokenizers and models from huggingface
     """
     def __init__(self, device, rank: int = 0, world_size=-1, **kwargs):
+
         path_to_data = kwargs.pop('path_to_data')
+        self.path_to_pretrained_models = kwargs.pop('path_to_pretrained_models', path_to_data)
+
         super().__init__(device, rank, world_size, **kwargs)
         min_len = kwargs.pop('min_len')
         fix_len = kwargs.pop('fix_len')
@@ -367,7 +370,8 @@ class DataLoaderPTBPretrained(ADataLoader):
         train_dataset, test_dataset, valid_dataset = PennTreebankPretrained(root=path_to_data,
                                                                             pretrained_tokenizer=pretrained_tokenizer,
                                                                             fix_len=fix_len,
-                                                                            min_len=min_len)
+                                                                            min_len=min_len,
+                                                                            path_to_pretrained_models=self.path_to_pretrained_models)
 
         train_sampler = None
         valid_sampler = None
@@ -421,7 +425,10 @@ class DataLoaderYahooPretrained(ADataLoader):
     Data loader for YahooAnswers with pretrained tokenizers and models from huggingface
     """
     def __init__(self, device, rank: int = 0, world_size=-1, **kwargs):
+
         path_to_data = kwargs.pop('path_to_data')
+        self.path_to_pretrained_models = kwargs.pop('path_to_pretrained_models', path_to_data)
+
         super().__init__(device, rank, world_size, **kwargs)
         min_len = kwargs.pop('min_len')
         fix_len = kwargs.pop('fix_len')
@@ -431,7 +438,8 @@ class DataLoaderYahooPretrained(ADataLoader):
         train_dataset, test_dataset, valid_dataset = YahooAnswersPretrained(root=path_to_data,
                                                                             pretrained_tokenizer=pretrained_tokenizer,
                                                                             fix_len=fix_len,
-                                                                            min_len=min_len)
+                                                                            min_len=min_len,
+                                                                            path_to_pretrained_models=self.path_to_pretrained_models)
 
         train_sampler = None
         valid_sampler = None
@@ -484,7 +492,10 @@ class DataLoaderWiki103Pretrained(ADataLoader):
     Data loader for YahooAnswers with pretrained tokenizers and models from huggingface
     """
     def __init__(self, device, rank: int = 0, world_size=-1, **kwargs):
+
         path_to_data = kwargs.pop('path_to_data')
+        self.path_to_pretrained_models = kwargs.pop('path_to_pretrained_models', path_to_data)
+
         super().__init__(device, rank, world_size, **kwargs)
         min_len = kwargs.pop('min_len')
         fix_len = kwargs.pop('fix_len')
@@ -492,9 +503,10 @@ class DataLoaderWiki103Pretrained(ADataLoader):
         assert pretrained_tokenizer is not None, 'no pretrained tokenizer specified'
 
         train_dataset, test_dataset, valid_dataset = WikiText103Pretrained(root=path_to_data,
-                                                                            pretrained_tokenizer=pretrained_tokenizer,
-                                                                            fix_len=fix_len,
-                                                                            min_len=min_len)
+                                                                           pretrained_tokenizer=pretrained_tokenizer,
+                                                                           fix_len=fix_len,
+                                                                           min_len=min_len,
+                                                                           path_to_pretrained_models=self.path_to_pretrained_models)
 
         train_sampler = None
         valid_sampler = None
