@@ -75,3 +75,22 @@ class MultiplicativeScheduler(object):
     def __call__(self, step):
         beta = self.start_value * self.multiplier**step
         return min(self.end_value, beta) if self.multiplier > 1 else max(self.end_value, beta)
+
+class PeriodicScheduler(object):
+    """
+    """
+
+    def __init__(self, **kwargs):
+        self.epoch_length = kwargs.get('epoch_length')
+        self.max_value = kwargs.get('max_value', 1)
+
+        self.quarter_epoch_length = self.epoch_length * .25
+
+    def __call__(self, step):
+        step = step % self.epoch_length
+        if step < self.epoch_length * .5:
+            return 0
+        elif step < self.epoch_length * .75:
+            return (step - 2 * self.quarter_epoch_length) / self.quarter_epoch_length * self.max_value
+        else:
+            return self.max_value
