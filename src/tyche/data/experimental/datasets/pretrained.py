@@ -141,10 +141,16 @@ def preprocess_wiki103(file):
     dest.write(data)
     dest.close()
 
-def _setup_datasets(dataset_name, fix_len, min_len=0, min_freq=1,
+
+def _setup_datasets(dataset_name,
+                    fix_len,
+                    min_len=0,
+                    min_freq=1,
+                    path_to_pretrained_models='./data',
                     pretrained_tokenizer=['GPT2', 'GPT2'],
                     root='./data',
                     data_select=('train', 'test', 'valid'), ):
+
     if isinstance(data_select, str):
         data_select = [data_select]
     if not set(data_select).issubset({'train', 'test', 'valid'}):
@@ -166,9 +172,11 @@ def _setup_datasets(dataset_name, fix_len, min_len=0, min_freq=1,
     tokenizer_list = []
     for model_name in pretrained_tokenizer:
         if model_name == 'GPT2':
-            tokenizer = GPT2TokenizerFast.from_pretrained('gpt2')
+            tokenizer = GPT2TokenizerFast.from_pretrained('gpt2',
+                                                          cache_dir=path_to_pretrained_models)
         elif model_name == 'BERT':
-            tokenizer = BertTokenizerFast.from_pretrained('bert-base-uncased')
+            tokenizer = BertTokenizerFast.from_pretrained('bert-base-uncased',
+                                                          cache_dir=path_to_pretrained_models)
         else:
             raise ValueError('pretrained tokenizer {} not supported! Choose one of [GPT2, BERT]'.format(model_name))
 
