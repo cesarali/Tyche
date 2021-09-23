@@ -3,7 +3,7 @@ import numpy as np
 
 class ExponentialScheduler(object):
 
-    def __init__(self, **kwargs):
+    def __init__(self, n_train_batches, **kwargs):
         self.max_steps = kwargs.get('max_steps', 1000)
         self.decay_rate = kwargs.get('decay_rate', 0.1)
 
@@ -15,7 +15,7 @@ class ExponentialIncrease(object):
     """
     Increases exponentially from zero to max_value
     """
-    def __init__(self, **kwargs):
+    def __init__(self, n_train_batches, **kwargs):
         n_steps_to_rich_maximum = kwargs.get('n_steps_to_rich_maximum', 10000)
         self.max_value = kwargs.get('max_value', 1.0)
         self.decay_rate = -np.log(1. - 0.99) / n_steps_to_rich_maximum
@@ -29,7 +29,7 @@ class ExponentialSchedulerGumbel(object):
     """
     Exponential annealing for Gumbel-Softmax temperature
     """
-    def __init__(self, **kwargs):
+    def __init__(self, n_train_batches, **kwargs):
         self.temp_init = kwargs.get('temp_init')
         self.min_tau = kwargs.get('min_temp')
         n_steps_to_rich_minimum = kwargs.get('n_steps_to_rich_minimum', 10000)
@@ -42,7 +42,7 @@ class ExponentialSchedulerGumbel(object):
 
 
 class ConstantScheduler(object):
-    def __init__(self, **kwargs):
+    def __init__(self, n_train_batches, **kwargs):
         self.beta = kwargs.get('beta', 1.0)
         self.validation_value = kwargs.get('validation_value', 1.0)
 
@@ -51,7 +51,7 @@ class ConstantScheduler(object):
 
 
 class LinearScheduler(object):
-    def __init__(self, **kwargs):
+    def __init__(self, n_train_batches, **kwargs):
         self.max_steps = kwargs.get('max_steps', 1000)
         self.start_value = kwargs.get('start_value', 0)
         print("start_value linear scheduler {}".format(self.start_value))
@@ -67,7 +67,7 @@ class MultiplicativeScheduler(object):
     Multiplies current value by multiplier each step until end_value is reached
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, n_train_batches, **kwargs):
         self.start_value = kwargs.get('start_value', 1)
         self.end_value = kwargs.get('end_value', 0)
         self.multiplier = kwargs.get('multiplier', .9)
@@ -80,8 +80,8 @@ class PeriodicScheduler(object):
     """
     """
 
-    def __init__(self, **kwargs):
-        self.epoch_length = kwargs.get('epoch_length')
+    def __init__(self, n_train_batches, **kwargs):
+        self.epoch_length = n_train_batches
         self.max_value = kwargs.get('max_value', 1)
 
         self.quarter_epoch_length = self.epoch_length * .25
