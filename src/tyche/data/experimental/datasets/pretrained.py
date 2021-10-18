@@ -69,10 +69,15 @@ class LanguageModelingDatasetPretrained(LanguageModelingDataset):
     def __getitem__(self, i):
         minibatch = dict()
         for tok_id in range(len(self.tokenizer_list)):
-            minibatch.update({'input_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['input'], dtype=np.int64),
-                              'target_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['target'], dtype=np.int64),
-                              'length_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['length']),
-                              'attn_mask_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['attn_mask'])})
+            if tok_id == 0:
+                minibatch.update({'input_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['input'], dtype=np.int64),
+                                  'length_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['length']),
+                                  'attn_mask_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['attn_mask'])})
+            else:
+                minibatch.update({'input_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['input'], dtype=np.int64),
+                                  'target_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['target'], dtype=np.int64),
+                                  'length_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['length']),
+                                  'attn_mask_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['attn_mask'])})
         if 'label' in self.data[i][0].keys():
             minibatch.update({'label': np.asarray(self.data[i][0]['label'])})
         return minibatch
@@ -183,8 +188,6 @@ def _setup_datasets(dataset_name,
         tokenizer.add_special_tokens(special_tokens)
         tokenizer_list.append(tokenizer)
 
-
-
     if dataset_name == 'PennTreebankPretrained':
         extracted_files = []
         select_to_index = {'train': 0, 'test': 1, 'valid': 2}
@@ -247,30 +250,48 @@ def _setup_datasets(dataset_name,
                 continue
             if dataset_name == 'YahooAnswersPretrained':
                 data_set[id][0]['label'] = int(row[0])
-                row_ = row[2:]
+                row = row[2:]  # remove the label (and the space after it)
             for t_id, tokenizer in enumerate(tokenizer_list):
                 SOS = tokenizer.bos_token_id
                 EOS = tokenizer.eos_token_id
                 PAD = tokenizer.pad_token_id
+                if t_id == 0:
+                    ### ENCODER tokenizer
 
-                tokens_attns = tokenizer(row, truncation=True, max_length=fix_len-1)
-                tokens = tokens_attns['input_ids']
-                tokens_ = [token_id for token_id in tokens]
-                size = len(tokens_)
+                    length_correction = 2 if \
+                        tokenizer.name_or_path == 'bert-base-uncased' else 0  # BERT adds [CLS], [SEP]
 
-                if size < min_len:
-                    continue
+                    tokens_attns = tokenizer(row,
+                                             truncation=True,
+                                             max_length=fix_len - 1 + length_correction,
+                                             return_length=True)
 
-                tokens_ = [SOS] + tokens_[:fix_len - 1] + [EOS]
-                input_ = tokens_[:-1]
-                target_ = tokens_[1:]
-                attn_mask = tokens_attns['attention_mask'][:fix_len - 1]
-                assert len(input_) == len(target_)
-                size = len(input_)
-                data_set[id][t_id]['input'] = input_ + [PAD] * (fix_len - size)
-                data_set[id][t_id]['target'] = target_ + [PAD] * (fix_len - size)
-                data_set[id][t_id]['length'] = size
-                data_set[id][t_id]['attn_mask'] = attn_mask + [1] + [0] * (fix_len - size)
+                    if tokens_attns['length'][0] < min_len:
+                        continue
+
+                    data_set[id][t_id]['input'] = tokens_attns['input_ids'] \
+                                                + [PAD] * (fix_len - 1 + length_correction - tokens_attns['length'][0])
+                    data_set[id][t_id]['length'] = tokens_attns['length'][0]
+                    data_set[id][t_id]['attn_mask'] = tokens_attns['attention_mask'] \
+                                                + [0] * (fix_len - 1 + length_correction - tokens_attns['length'][0])
+                else:
+                    ### DECODER tokenizer
+                    tokens_attns = tokenizer(row,
+                                             truncation=True,
+                                             max_length=fix_len - 1,
+                                             return_length=True)
+                    if tokens_attns['length'][0] < min_len:
+                        continue
+
+                    input_ = [SOS] + tokens_attns['input_ids']
+                    target_ = tokens_attns['input_ids'] + [EOS]
+                    attn_mask = tokens_attns['attention_mask']
+                    assert len(input_) == len(target_)
+                    size = len(input_)
+                    data_set[id][t_id]['input'] = input_ + [PAD] * (fix_len - size)
+                    data_set[id][t_id]['target'] = target_ + [PAD] * (fix_len - size)
+                    data_set[id][t_id]['length'] = size
+                    data_set[id][t_id]['attn_mask'] = attn_mask + [1] + [0] * (fix_len - size)
 
             id += 1
         data[item] = data_set
