@@ -69,7 +69,9 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
             self.schedulers = dict()
             schedulers_ = create_instance('schedulers',
                                           self.params['trainer']['args'],
-                                          *(data_loader.n_train_batches,))
+                                          *(data_loader.n_train_batches,
+                                            self.n_epochs,
+                                            ))
             if type(schedulers_) is not list:
                 schedulers_ = [schedulers_]
             for a, b in zip(self.params['trainer']['args']['schedulers'], schedulers_):
