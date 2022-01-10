@@ -89,6 +89,9 @@ class LanguageModelingDatasetPretrained(LanguageModelingDataset):
     def get_pad_token_id(self):
         return self.tokenizer_list[-1].pad_token_id
 
+    def get_unk_token_id(self):
+        return self.tokenizer_list[-1].unk_token_id
+
     def get_num_added_tokens(self):
         return self.num_added_tokens
 

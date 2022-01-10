@@ -55,6 +55,7 @@ class AtomicDatasetPretrained(LanguageModelingDataset):
                 'token_type_ids': np.asarray(self.data[i]['token_type_ids']),
                 'attn_mask_enc': np.asarray(self.data[i]['attn_mask_enc']),
                 'attn_mask_dec': np.asarray(self.data[i]['attn_mask_dec']),
+                'mask_subject_relation': np.asarray(self.data[i]['mask_subject_relation']),
                 'relation': np.asarray(self.data[i]['relation'])}
 
     def __iter__(self):
@@ -63,6 +64,9 @@ class AtomicDatasetPretrained(LanguageModelingDataset):
 
     def get_pad_token_id(self):
         return self.tokenizer.pad_token_id
+
+    def get_unk_token_id(self):
+        return self.tokenizer.unk_token_id
 
     def get_num_added_tokens(self):
         return self.num_added_tokens
@@ -90,10 +94,13 @@ class AtomicDatasetPretrained(LanguageModelingDataset):
 
         return [' '.join(ex) for ex in batch]
 
-def _setup_datasets(dataset_name, fix_len, min_len=0, min_freq=1,
-                    pretrained_tokenizer=['BERT', 'GPT2'],
+def _setup_datasets(dataset_name,
+                    fix_len,
+                    min_len=0,
+                    min_freq=1,
                     root='./data',
                     data_select=('train', 'test', 'valid'), ):
+
     if isinstance(data_select, str):
         data_select = [data_select]
     if not set(data_select).issubset({'train', 'test', 'valid'}):
@@ -116,7 +123,8 @@ def _setup_datasets(dataset_name, fix_len, min_len=0, min_freq=1,
         tokenizer.add_special_tokens(special_tokens)
 
     if dataset_name == 'Atomic2':
-        filename = 'atomic_preprocessed.zip'
+        # filename = 'atomic_preprocessed.zip'
+        filename = 'atomic_simple_preprocessed.zip'
         path = os.path.join(root, filename)
 
         extracted_file = extract_archive(path)[0]
@@ -138,12 +146,11 @@ def _setup_datasets(dataset_name, fix_len, min_len=0, min_freq=1,
         id = 0
         for row in tqdm(_iter, unit='data point', desc=f'Preparing {item} dataset'):
 
-            SOS_enc = tokenizer_enc.bos_token_id
             SOS_dec = tokenizer_dec.bos_token_id
             EOS = tokenizer_dec.eos_token_id
             PAD = tokenizer_dec.pad_token_id
 
-            seq1 = row[0] + row[1]
+            seq1 = row[0] + " " + row[1]
             seq2 = row[2]
             relation = row[1]
 
@@ -154,7 +161,9 @@ def _setup_datasets(dataset_name, fix_len, min_len=0, min_freq=1,
 
             relation = tokenizer_dec(relation)['input_ids']
 
-            tokens_enc = tokenizer_enc_out['input_ids'][1:] # remove [CLS] in front
+            # tokens_enc = tokenizer_enc_out['input_ids'][1:]   # remove [CLS] in front
+            tokens_enc = tokenizer_enc_out['input_ids']
+
             token_types_enc = tokenizer_enc_out['token_type_ids']
             attn_mask_enc = tokenizer_enc_out['attention_mask']
 
@@ -162,14 +171,17 @@ def _setup_datasets(dataset_name, fix_len, min_len=0, min_freq=1,
             attn_mask_dec = tokenizer_dec_out['attention_mask']
             first_pad_idx = tokens_dec.index(PAD)
 
+            relation_idx = tokens_dec.index(relation[0])
+
             if first_pad_idx + 1 < min_len:
                 continue
 
-            data_set[id]['input_enc'] = [SOS_enc] + tokens_enc
+            data_set[id]['input_enc'] = tokens_enc
             data_set[id]['input_dec'] = [SOS_dec] + tokens_dec[:-1]
             data_set[id]['target'] = tokens_dec
             data_set[id]['target'][first_pad_idx] = EOS
             data_set[id]['length'] = first_pad_idx + 1
+            data_set[id]['mask_subject_relation'] = [1 if i > relation_idx else 0 for i in range(fix_len)]
             data_set[id]['token_type_ids'] = token_types_enc
             data_set[id]['attn_mask_enc'] = attn_mask_enc
             data_set[id]['attn_mask_dec'] = [1] + attn_mask_dec[:-1]
