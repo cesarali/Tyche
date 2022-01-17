@@ -8,7 +8,7 @@ from tqdm import tqdm
 from tyche.data.experimental.datasets.language_modeling import LanguageModelingDataset, _get_datafile_path
 import torch
 from torchtext.utils import download_from_url, extract_archive
-from transformers import GPT2TokenizerFast, BertTokenizerFast
+from transformers import GPT2Tokenizer, BertTokenizer
 import regex as re
 
 
@@ -24,7 +24,10 @@ URLS = {
     'YahooAnswersPretrained':
         ['https://raw.githubusercontent.com/fangleai/Implicit-LVM/master/lang_model_yahoo/data/train.txt',
          'https://raw.githubusercontent.com/fangleai/Implicit-LVM/master/lang_model_yahoo/data/test.txt',
-         'https://raw.githubusercontent.com/fangleai/Implicit-LVM/master/lang_model_yahoo/data/val.txt']
+         'https://raw.githubusercontent.com/fangleai/Implicit-LVM/master/lang_model_yahoo/data/val.txt'],
+    'WikiOptimus':
+        'https://textae.blob.core.windows.net/optimus/data/datasets/wikipedia_json_64_filtered.zip'
+
 }
 
 
@@ -60,24 +63,16 @@ class LanguageModelingDatasetPretrained(LanguageModelingDataset):
         super(LanguageModelingDatasetPretrained, self).__init__(data, tokenizer_list)
         self.data = data
         self.tokenizer_list = tokenizer_list
-
-        self.PAD = tokenizer_list[-1].pad_token
-        self.SOS = tokenizer_list[-1].bos_token
-        self.EOS = tokenizer_list[-1].eos_token
-        self.num_added_tokens = num_added_tokens
+        self.tokenizer = tokenizer_list[-1]
 
     def __getitem__(self, i):
         minibatch = dict()
         for tok_id in range(len(self.tokenizer_list)):
-            if tok_id == 0:
-                minibatch.update({'input_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['input'], dtype=np.int64),
-                                  'length_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['length']),
-                                  'attn_mask_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['attn_mask'])})
-            else:
-                minibatch.update({'input_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['input'], dtype=np.int64),
-                                  'target_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['target'], dtype=np.int64),
-                                  'length_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['length']),
-                                  'attn_mask_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['attn_mask'])})
+            minibatch.update({'input_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['input'], dtype=np.int64),
+                              'attn_mask_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['attn_mask']),
+                              'length_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['length'])})
+            if 'target' in self.data[i][tok_id].keys():
+                minibatch.update({'target_{}'.format(tok_id): np.asarray(self.data[i][tok_id]['target'], dtype=np.int64)})
         if 'label' in self.data[i][0].keys():
             minibatch.update({'label': np.asarray(self.data[i][0]['label'])})
         return minibatch
@@ -86,37 +81,18 @@ class LanguageModelingDatasetPretrained(LanguageModelingDataset):
         for i in range(self.__len__()):
             yield self[i]
 
-    def get_pad_token_id(self):
-        return self.tokenizer_list[-1].pad_token_id
+    @staticmethod
+    def get_pad_token_id():
+        return -100
 
-    def get_unk_token_id(self):
-        return self.tokenizer_list[-1].unk_token_id
-
-    def get_num_added_tokens(self):
-        return self.num_added_tokens
+    @staticmethod
+    def get_num_added_tokens():
+        return 0
 
     def reverse(self, batch):
-
-        with torch.cuda.device_of(batch):
-            batch = batch.tolist()
-        batch = [self.tokenizer_list[-1].convert_ids_to_tokens(ex) for ex in batch]  # denumericalize
-
-        def trim(s, t):
-            sentence = []
-            for w in s:
-                if w == t:
-                    break
-                sentence.append(w)
-            return sentence
-
-        batch = [trim(ex, self.EOS) for ex in batch]  # trim past first eos
-
-        def filter_special(tok):
-            return tok not in (self.SOS, self.PAD)
-
-        batch = list(filter(filter_special, ex) for ex in batch)
-
-        return [' '.join(ex) for ex in batch]
+        batch[batch == -100] = self.tokenizer.eos_token_id
+        sentences = self.tokenizer.batch_decode(batch, skip_special_tokens=True)
+        return sentences
 
 # add label at beginning of each line of yahoo
 def preprocess_yahoo(file):
@@ -132,10 +108,11 @@ def preprocess_yahoo(file):
     dest = open(file, "wt")
     dest.write(data)
     dest.close()
+
+
 # remove empty lines and section headers from wiki103
 def preprocess_wiki103(file):
     src = open(file, "rt")
-    label = -1
     file_iter = [row for row in src]
     data = ''
     for i, line in enumerate(file_iter):
@@ -164,32 +141,21 @@ def _setup_datasets(dataset_name,
     if not set(data_select).issubset({'train', 'test', 'valid'}):
         raise TypeError('data_select is not supported!')
 
-    if dataset_name in ['PennTreebankPretrained', 'WikiText103Pretrained']:
-        special_tokens = {'unk_token': '<unk>',
-                          'pad_token': '<pad>',
-                          'bos_token': '<bos>',
-                          'eos_token': '<eos>'}
-    elif dataset_name == 'YahooAnswersPretrained':
-        special_tokens = {'unk_token': '_UNK',
-                          'pad_token': '<pad>',
-                          'bos_token': '<bos>',
-                          'eos_token': '<eos>'}
-
-
     # get the pretrained tokenizers
     tokenizer_list = []
     for model_name in pretrained_tokenizer:
         if model_name == 'GPT2':
-            tokenizer = GPT2TokenizerFast.from_pretrained('gpt2',
+            tokenizer = GPT2Tokenizer.from_pretrained('gpt2',
                                                           cache_dir=path_to_pretrained_models)
         elif model_name == 'BERT':
-            tokenizer = BertTokenizerFast.from_pretrained('bert-base-uncased',
+            tokenizer = BertTokenizer.from_pretrained('bert-base-uncased',
                                                           cache_dir=path_to_pretrained_models)
         else:
             raise ValueError('pretrained tokenizer {} not supported! Choose one of [GPT2, BERT]'.format(model_name))
 
-        tokenizer.add_special_tokens(special_tokens)
         tokenizer_list.append(tokenizer)
+        # for compatibility with the data loaders
+        special_tokens = []
 
     if dataset_name == 'PennTreebankPretrained':
         extracted_files = []
@@ -226,6 +192,15 @@ def _setup_datasets(dataset_name,
         for file in extracted_files:
             preprocess_wiki103(file)
 
+    elif dataset_name == 'WikiOptimus':
+        url_ = URLS[dataset_name]
+        _, filename = os.path.split(url_)
+        dataset_tar = os.path.join(root, filename)
+        if not os.path.exists(dataset_tar):
+            dataset_tar = download_from_url(url_, root=root)
+        extracted_files = extract_archive(dataset_tar)
+        for file in extracted_files:
+            print(file)
     else:
         extracted_files = []
         for key in data_select:
@@ -241,7 +216,6 @@ def _setup_datasets(dataset_name,
 
     data = dict()
 
-    vocab_list = [tokenizer.get_vocab() for tokenizer in tokenizer_list]
     for item in _path.keys():
         data_set = defaultdict(lambda: defaultdict(dict))
         logging.info('Creating {} data'.format(item))
@@ -249,52 +223,52 @@ def _setup_datasets(dataset_name,
         id = 0
         for row in tqdm(_iter, unit='data point', desc=f'Preparing {item} dataset'):
             row = row[:-1]  # remove \n at the end of each line
+
+            ### data set specific alterations ###
             if dataset_name == 'WikiText2Pretrained' and (row == '' or row[0] == '='):
                 continue
             if dataset_name == 'YahooAnswersPretrained':
                 data_set[id][0]['label'] = int(row[0])
                 row = row[2:]  # remove the label (and the space after it)
+
             for t_id, tokenizer in enumerate(tokenizer_list):
-                SOS = tokenizer.bos_token_id
-                EOS = tokenizer.eos_token_id
-                PAD = tokenizer.pad_token_id
-                if t_id == 0:
-                    ### ENCODER tokenizer
 
-                    length_correction = 2 if \
-                        tokenizer.name_or_path == 'bert-base-uncased' else 0  # BERT adds [CLS], [SEP]
+                if pretrained_tokenizer[t_id] == 'BERT':
+                    ### BERT tokenizer ###
 
                     tokens_attns = tokenizer(row,
                                              truncation=True,
-                                             max_length=fix_len - 1 + length_correction,
-                                             return_length=True)
+                                             max_length=fix_len,
+                                             return_length=True,
+                                             add_special_tokens=True)
 
-                    if tokens_attns['length'][0] < min_len:
+                    if tokens_attns['length'] < min_len:
                         continue
 
-                    data_set[id][t_id]['input'] = tokens_attns['input_ids'] \
-                                                + [PAD] * (fix_len - 1 + length_correction - tokens_attns['length'][0])
-                    data_set[id][t_id]['length'] = tokens_attns['length'][0]
-                    data_set[id][t_id]['attn_mask'] = tokens_attns['attention_mask'] \
-                                                + [0] * (fix_len - 1 + length_correction - tokens_attns['length'][0])
+                    pad_len = fix_len - tokens_attns['length']
+
+                    data_set[id][t_id]['length'] = tokens_attns['length']
+                    data_set[id][t_id]['input'] = tokens_attns['input_ids'] + [tokenizer.pad_token_id] * pad_len
+                    data_set[id][t_id]['attn_mask'] = tokens_attns['attention_mask'] + [0] * pad_len
                 else:
-                    ### DECODER tokenizer
+                    ### GPT2 tokenizer ###
                     tokens_attns = tokenizer(row,
                                              truncation=True,
-                                             max_length=fix_len - 1,
+                                             max_length=fix_len-1,
                                              return_length=True)
-                    if tokens_attns['length'][0] < min_len:
-                        continue
 
-                    input_ = [SOS] + tokens_attns['input_ids']
-                    target_ = tokens_attns['input_ids'] + [EOS]
-                    attn_mask = tokens_attns['attention_mask']
-                    assert len(input_) == len(target_)
-                    size = len(input_)
-                    data_set[id][t_id]['input'] = input_ + [PAD] * (fix_len - size)
-                    data_set[id][t_id]['target'] = target_ + [PAD] * (fix_len - size)
-                    data_set[id][t_id]['length'] = size
-                    data_set[id][t_id]['attn_mask'] = attn_mask + [1] + [0] * (fix_len - size)
+
+                    pad_len = fix_len - tokens_attns['length'] - 1
+
+                    data_set[id][t_id]['length'] = tokens_attns['length']
+                    data_set[id][t_id]['input'] = [tokenizer.bos_token_id] + tokens_attns['input_ids'] + \
+                                                  [tokenizer.eos_token_id] * pad_len
+                    data_set[id][t_id]['target'] = tokens_attns['input_ids'] + [tokenizer.eos_token_id] + \
+                                                   [-100] * pad_len
+                    data_set[id][t_id]['attn_mask'] = tokens_attns['attention_mask'] + [1] + [0] * pad_len
+
+                    assert len(data_set[id][t_id]['input']) == len(data_set[id][t_id]['target']) \
+                           == len(data_set[id][t_id]['attn_mask']) == fix_len
 
             id += 1
         data[item] = data_set
@@ -306,32 +280,31 @@ def _setup_datasets(dataset_name,
     return tuple(LanguageModelingDatasetPretrained(data[d], tokenizer_list, len(special_tokens)) for d in data_select)
 
 def PennTreebankPretrained(*args, **kwargs):
-    def PennTreebank(*args, **kwargs):
-        """ Defines PennTreebank datasets.
+    """ Defines PennTreebank datasets.
 
-        Create language modeling dataset: PennTreebank
-        Separately returns the train/test/valid set
+    Create language modeling dataset: PennTreebank
+    Separately returns the train/test/valid set
 
-        Arguments:
-            pretrained_tokenizer: list of strings from {'GPT2', 'BERT'} that correspond to the tokenizers of huggingface
-                transformers {'gpt2', 'bert-base-uncased'}
-            root: Directory where the datasets are saved. Default: ".data"
-            data_select: a string or tupel for the returned datasets
-                (Default: ('train', 'test','valid'))
-                By default, all the three datasets (train, test, valid) are generated. Users
-                could also choose any one or two of them, for example ('train', 'test') or
-                just a string 'train'. If 'train' is not in the tuple or string, a vocab
-                object should be provided which will be used to process valid and/or test
-                data.
+    Arguments:
+        pretrained_tokenizer: list of strings from {'GPT2', 'BERT'} that correspond to the tokenizers of huggingface
+            transformers {'gpt2', 'bert-base-uncased'}
+        root: Directory where the datasets are saved. Default: ".data"
+        data_select: a string or tupel for the returned datasets
+            (Default: ('train', 'test','valid'))
+            By default, all the three datasets (train, test, valid) are generated. Users
+            could also choose any one or two of them, for example ('train', 'test') or
+            just a string 'train'. If 'train' is not in the tuple or string, a vocab
+            object should be provided which will be used to process valid and/or test
+            data.
 
-        The returned data sets contain a dictionary with keys
-            'input_{i}'
-            'target_{i}'
-            'length_{i}'
-            'attn_mask_{i}'
-            for each tokenizer, where {i} is the index of each tokenizer in pretrained_tokenizer
+    The returned data sets contain a dictionary with keys
+        'input_{i}'
+        'target_{i}'
+        'length_{i}'
+        'attn_mask_{i}'
+        for each tokenizer, where {i} is the index of each tokenizer in pretrained_tokenizer
 
-        """
+    """
 
     return _setup_datasets(*(("PennTreebankPretrained",) + args), **kwargs)
 
@@ -342,3 +315,6 @@ def YahooAnswersPretrained(*args, **kwargs):
 
 def WikiText103Pretrained(*args, **kwargs):
     return _setup_datasets(*(("WikiText103Pretrained",) + args), **kwargs)
+
+def WikiOptimus(*args, **kwargs):
+    return _setup_datasets(*(("WikiOptimus",) + args), **kwargs)

@@ -389,7 +389,6 @@ class DataLoaderPTBPretrained(ADataLoader):
                                      shuffle=test_sampler is None, **kwargs)
 
         self._pad_token_id = train_dataset.get_pad_token_id()
-        self._unk_token_id = train_dataset.get_unk_token_id()
 
         self._fix_length = fix_len
 
@@ -415,10 +414,6 @@ class DataLoaderPTBPretrained(ADataLoader):
     @property
     def pad_token_id(self):
         return self._pad_token_id
-
-    @property
-    def unk_token_id(self):
-        return self._unk_token_id
 
     @property
     def fix_len(self):
@@ -477,7 +472,6 @@ class DataLoaderYahooPretrained(ADataLoader):
         self._num_added_tokens = train_dataset.get_num_added_tokens()
         self._tokenizer = train_dataset.tokenizer_list[-1]
 
-
     @property
     def train(self):
         return self._train_iter
@@ -497,10 +491,6 @@ class DataLoaderYahooPretrained(ADataLoader):
     @property
     def pad_token_id(self):
         return self._pad_token_id
-
-    @property
-    def unk_token_id(self):
-        return self._unk_token_id
 
     @property
     def fix_len(self):

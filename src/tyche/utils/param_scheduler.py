@@ -87,7 +87,7 @@ class PeriodicScheduler(object):
 
     def __init__(self, n_train_batches, n_epochs, **kwargs):
         self.epoch_length = n_train_batches
-        self.max_value = kwargs.get('max_value', 1)
+        self.max_value = kwargs.get('max_value', 1.0)
 
         self.quarter_epoch_length = self.epoch_length * .25
 
