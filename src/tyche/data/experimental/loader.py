@@ -465,7 +465,6 @@ class DataLoaderYahooPretrained(ADataLoader):
                                      shuffle=test_sampler is None, **kwargs)
 
         self._pad_token_id = train_dataset.get_pad_token_id()
-        self._unk_token_id = train_dataset.get_unk_token_id()
 
         self._fix_length = fix_len
 
