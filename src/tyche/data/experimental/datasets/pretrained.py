@@ -25,7 +25,11 @@ URLS = {
         ['https://raw.githubusercontent.com/fangleai/Implicit-LVM/master/lang_model_yahoo/data/train.txt',
          'https://raw.githubusercontent.com/fangleai/Implicit-LVM/master/lang_model_yahoo/data/test.txt',
          'https://raw.githubusercontent.com/fangleai/Implicit-LVM/master/lang_model_yahoo/data/val.txt'],
-    'WikiOptimus':
+    'YelpReviewPretrained':
+        ['https://github.com/fangleai/Implicit-LVM/raw/master/lang_model_yelp/data/yelp.train.txt',
+         'https://github.com/fangleai/Implicit-LVM/raw/master/lang_model_yelp/data/yelp.test.txt',
+         'https://github.com/fangleai/Implicit-LVM/raw/master/lang_model_yelp/data/yelp.valid.txt'],
+    'WikiOptimusPretrained':
         'https://textae.blob.core.windows.net/optimus/data/datasets/wikipedia_json_64_filtered.zip'
 
 }
@@ -169,16 +173,17 @@ def _setup_datasets(dataset_name,
             else:
                 extracted_files.append(download_from_url(url_, root=root))
 
-    elif dataset_name == 'YahooAnswersPretrained':
+    elif dataset_name in ['YahooAnswersPretrained', 'YelpReviewPretrained']:
         extracted_files = []
         select_to_index = {'train': 0, 'test': 1, 'valid': 2}
         for key in data_select:
-            url_ = URLS['YahooAnswersPretrained'][select_to_index[key]]
+            url_ = URLS[dataset_name][select_to_index[key]]
             _, filename = os.path.split(url_)
             path_ = os.path.join(root, filename)
             if not os.path.exists(path_.replace('val', 'valid')):
                 path_ = download_from_url(url_, root=root)
-                preprocess_yahoo(path_)
+                if dataset_name == 'YahooAnswersPretrained':
+                    preprocess_yahoo(path_)
                 os.rename(path_, path_.replace('val', 'valid'))
             extracted_files.append(path_.replace('val', 'valid'))
 
@@ -192,7 +197,7 @@ def _setup_datasets(dataset_name,
         for file in extracted_files:
             preprocess_wiki103(file)
 
-    elif dataset_name == 'WikiOptimus':
+    elif dataset_name == 'WikiText2Pretrained':
         url_ = URLS[dataset_name]
         _, filename = os.path.split(url_)
         dataset_tar = os.path.join(root, filename)
@@ -227,7 +232,7 @@ def _setup_datasets(dataset_name,
             ### data set specific alterations ###
             if dataset_name == 'WikiText2Pretrained' and (row == '' or row[0] == '='):
                 continue
-            if dataset_name == 'YahooAnswersPretrained':
+            if dataset_name in ['YahooAnswersPretrained', 'YelpReviewPretrained']:
                 data_set[id][0]['label'] = int(row[0])
                 row = row[2:]  # remove the label (and the space after it)
 
@@ -312,9 +317,11 @@ def PennTreebankPretrained(*args, **kwargs):
 def YahooAnswersPretrained(*args, **kwargs):
     return _setup_datasets(*(("YahooAnswersPretrained",) + args), **kwargs)
 
+def YelpReviewPretrained(*args, **kwargs):
+    return _setup_datasets(*(("YelpReviewPretrained",) + args), **kwargs)
 
 def WikiText103Pretrained(*args, **kwargs):
     return _setup_datasets(*(("WikiText103Pretrained",) + args), **kwargs)
 
-def WikiOptimus(*args, **kwargs):
-    return _setup_datasets(*(("WikiOptimus",) + args), **kwargs)
+def WikiText2Pretrained(*args, **kwargs):
+    return _setup_datasets(*(("WikiText2Pretrained",) + args), **kwargs)
