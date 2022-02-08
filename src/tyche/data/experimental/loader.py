@@ -5,7 +5,7 @@ from nltk.tokenize import TweetTokenizer
 from torch.utils.data.dataloader import DataLoader
 from tyche.data.experimental.datasets import WikiText2, WikiText103, PennTreebank, YelpReviewPolarity, YelpReviewFull,\
     YahooAnswers, PennTreebankPretrained, YahooAnswersPretrained, WikiText103Pretrained, WikiText2Pretrained, Atomic2,\
-    YelpReviewPretrained
+    YelpReviewPretrained, WikiOptimusPretrained
 
 sampler = torch.utils.data.RandomSampler
 
@@ -498,6 +498,20 @@ class DataLoaderWiki2Pretrained(DataLoaderPretrained):
     def get_datasets(self, path_to_data, pretrained_tokenizer, min_len):
         return WikiText2Pretrained(root=path_to_data,
                                       pretrained_tokenizer=pretrained_tokenizer,
+                                      fix_len=self._fix_len,
+                                      min_len=min_len,
+                                      path_to_pretrained_models=self.path_to_pretrained_models)
+
+class DataLoaderWikiOptimusPretrained(DataLoaderPretrained):
+    """
+    Data loader for Wiki2 with pretrained tokenizers and models from huggingface
+    """
+
+    def __init__(self, device, rank: int = 0, world_size=-1, **kwargs):
+        super().__init__(device, rank, world_size, **kwargs)
+
+    def get_datasets(self, path_to_data, pretrained_tokenizer, min_len):
+        return WikiOptimusPretrained(root=path_to_data,
                                       fix_len=self._fix_len,
                                       min_len=min_len,
                                       path_to_pretrained_models=self.path_to_pretrained_models)

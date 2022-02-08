@@ -8,7 +8,7 @@ from tqdm import tqdm
 from tyche.data.experimental.datasets.language_modeling import LanguageModelingDataset, _get_datafile_path
 import torch
 from torchtext.utils import download_from_url, extract_archive
-from transformers import GPT2TokenizerFast, BertTokenizerFast
+from transformers import GPT2Tokenizer, BertTokenizer
 import regex as re
 import json
 
@@ -63,7 +63,7 @@ class AtomicDatasetPretrained(LanguageModelingDataset):
             yield self[i]
 
     def get_pad_token_id(self):
-        return self.tokenizer.pad_token_id
+        return -100
 
     def get_unk_token_id(self):
         return self.tokenizer.unk_token_id
@@ -72,27 +72,9 @@ class AtomicDatasetPretrained(LanguageModelingDataset):
         return self.num_added_tokens
 
     def reverse(self, batch):
-
-        with torch.cuda.device_of(batch):
-            batch = batch.tolist()
-        batch = [self.tokenizer.convert_ids_to_tokens(ex) for ex in batch]  # denumericalize
-
-        def trim(s, t):
-            sentence = []
-            for w in s:
-                if w == t:
-                    break
-                sentence.append(w)
-            return sentence
-
-        batch = [trim(ex, self.tokenizer.eos_token_id) for ex in batch]  # trim past first eos
-
-        def filter_special(tok):
-            return tok not in (self.SOS, self.PAD)
-
-        batch = list(filter(filter_special, ex) for ex in batch)
-
-        return [' '.join(ex) for ex in batch]
+        batch[batch == -100] = self.tokenizer.eos_token_id
+        sentences = self.tokenizer.batch_decode(batch, skip_special_tokens=True)
+        return sentences
 
 def _setup_datasets(dataset_name,
                     fix_len,
@@ -109,18 +91,13 @@ def _setup_datasets(dataset_name,
     if dataset_name == 'Atomic2':
         extra_tokens = ["<oEffect>", "<oReact>", "<oWant>", "<xAttr>", "<xEffect>", "<xIntent>", "<xNeed>", "<xReact>", "<xWant>",
                         'none', '___', 'PersonX', 'PersonY']
-        special_tokens = {'unk_token': '<unk>',
-                          'pad_token': '<pad>',
-                          'bos_token': '<bos>',
-                          'eos_token': '<eos>'}
 
     # get the pretrained tokenizers
-    tokenizer_enc = BertTokenizerFast.from_pretrained('bert-base-uncased')
-    tokenizer_dec = GPT2TokenizerFast.from_pretrained('gpt2')
+    tokenizer_enc = BertTokenizer.from_pretrained('bert-base-uncased')
+    tokenizer_dec = GPT2Tokenizer.from_pretrained('gpt2')
 
     for tokenizer in [tokenizer_enc, tokenizer_dec]:
         tokenizer.add_tokens(extra_tokens, special_tokens=True)
-        tokenizer.add_special_tokens(special_tokens)
 
     if dataset_name == 'Atomic2':
         # filename = 'atomic_preprocessed.zip'
@@ -146,20 +123,17 @@ def _setup_datasets(dataset_name,
         id = 0
         for row in tqdm(_iter, unit='data point', desc=f'Preparing {item} dataset'):
 
-            SOS_dec = tokenizer_dec.bos_token_id
+            SOS = tokenizer_dec.bos_token_id
             EOS = tokenizer_dec.eos_token_id
-            PAD = tokenizer_dec.pad_token_id
+            PAD = -100
 
             seq1 = row[0] + " " + row[1]
             seq2 = row[2]
             relation = row[1]
 
+            ### Encoder ###
             tokenizer_enc_out = tokenizer_enc(seq1, seq2, return_token_type_ids=True,
                                               padding='max_length', truncation='only_second', max_length=fix_len)
-            tokenizer_dec_out = tokenizer_dec(seq1 + seq2,
-                                              padding='max_length', truncation=True, max_length=fix_len)
-
-            relation = tokenizer_dec(relation)['input_ids']
 
             # tokens_enc = tokenizer_enc_out['input_ids'][1:]   # remove [CLS] in front
             tokens_enc = tokenizer_enc_out['input_ids']
@@ -167,24 +141,29 @@ def _setup_datasets(dataset_name,
             token_types_enc = tokenizer_enc_out['token_type_ids']
             attn_mask_enc = tokenizer_enc_out['attention_mask']
 
+            ### Decoder ###
+            tokenizer_dec_out = tokenizer_dec(seq1 + seq2,
+                                              truncation=True, max_length=fix_len-1, return_length=True)
+            relation = tokenizer_dec(relation)['input_ids']
+
+            length = tokenizer_dec_out['length']
             tokens_dec = tokenizer_dec_out['input_ids']
             attn_mask_dec = tokenizer_dec_out['attention_mask']
-            first_pad_idx = tokens_dec.index(PAD)
+            pad_length = fix_len - length - 1
 
             relation_idx = tokens_dec.index(relation[0])
 
-            if first_pad_idx + 1 < min_len:
+            if length < min_len:
                 continue
 
             data_set[id]['input_enc'] = tokens_enc
-            data_set[id]['input_dec'] = [SOS_dec] + tokens_dec[:-1]
-            data_set[id]['target'] = tokens_dec
-            data_set[id]['target'][first_pad_idx] = EOS
-            data_set[id]['length'] = first_pad_idx + 1
+            data_set[id]['input_dec'] = [SOS] + tokens_dec + pad_length * [EOS]
+            data_set[id]['target'] = tokens_dec + [EOS] + pad_length * [PAD]
+            data_set[id]['length'] = length
             data_set[id]['mask_subject_relation'] = [1 if i > relation_idx else 0 for i in range(fix_len)]
             data_set[id]['token_type_ids'] = token_types_enc
             data_set[id]['attn_mask_enc'] = attn_mask_enc
-            data_set[id]['attn_mask_dec'] = [1] + attn_mask_dec[:-1]
+            data_set[id]['attn_mask_dec'] = [1] + attn_mask_dec + pad_length * [0]
             data_set[id]['relation'] = relation
 
             id += 1
@@ -193,7 +172,7 @@ def _setup_datasets(dataset_name,
         if not data[key]:
             raise TypeError('Dataset {} is empty!'.format(key))
 
-    num_added_tokens = len(special_tokens) + len(extra_tokens)
+    num_added_tokens = len(extra_tokens)
 
     return tuple(AtomicDatasetPretrained(data[d], tokenizer_dec, num_added_tokens) for d in data_select)
 
