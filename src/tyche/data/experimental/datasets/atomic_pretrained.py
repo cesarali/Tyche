@@ -90,14 +90,14 @@ def _setup_datasets(dataset_name,
 
     if dataset_name == 'Atomic2':
         extra_tokens = ["<oEffect>", "<oReact>", "<oWant>", "<xAttr>", "<xEffect>", "<xIntent>", "<xNeed>", "<xReact>", "<xWant>",
-                        'none', '___', 'PersonX', 'PersonY']
+                        "none", "___", "PersonX", "PersonY"]
 
     # get the pretrained tokenizers
     tokenizer_enc = BertTokenizer.from_pretrained('bert-base-uncased')
     tokenizer_dec = GPT2Tokenizer.from_pretrained('gpt2')
 
-    for tokenizer in [tokenizer_enc, tokenizer_dec]:
-        tokenizer.add_tokens(extra_tokens, special_tokens=True)
+    num_added_t_enc = tokenizer_enc.add_tokens(extra_tokens)
+    num_added_t_dec = tokenizer_dec.add_tokens(extra_tokens)
 
     if dataset_name == 'Atomic2':
         # filename = 'atomic_preprocessed.zip'
@@ -174,7 +174,7 @@ def _setup_datasets(dataset_name,
 
     num_added_tokens = len(extra_tokens)
 
-    return tuple(AtomicDatasetPretrained(data[d], tokenizer_dec, num_added_tokens) for d in data_select)
+    return tuple(AtomicDatasetPretrained(data[d], tokenizer_dec, (num_added_t_enc, num_added_t_dec)) for d in data_select)
 
 def Atomic2(*args, **kwargs):
     return _setup_datasets(*(("Atomic2",) + args), **kwargs)
