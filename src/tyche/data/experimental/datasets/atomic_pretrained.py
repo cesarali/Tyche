@@ -11,6 +11,7 @@ from torchtext.utils import download_from_url, extract_archive
 from transformers import GPT2Tokenizer, BertTokenizer
 import regex as re
 import json
+import pickle
 
 class AtomicDatasetPretrained(LanguageModelingDataset):
     """Defines a dataset for language modeling using pretrained tokenizers from huggingface transformers.
@@ -30,7 +31,7 @@ class AtomicDatasetPretrained(LanguageModelingDataset):
 
     """
 
-    def __init__(self, data, tokenizer, num_added_tokens):
+    def __init__(self, data, tokenizer_list, num_added_tokens):
         """Initiate language modeling dataset using pretrained tokenizers from huggingface.
 
         Arguments:
@@ -41,9 +42,10 @@ class AtomicDatasetPretrained(LanguageModelingDataset):
             num_added_tokens: number of tokens that were newly added to the vocabulary of each tokenizer
         """
 
-        super(AtomicDatasetPretrained, self).__init__(data, tokenizer)
+        super(AtomicDatasetPretrained, self).__init__(data, tokenizer_list)
         self.data = data
-        self.tokenizer = tokenizer
+        self.tokenizer_list = tokenizer_list
+        self.tokenizer = tokenizer_list[-1]
 
         self.num_added_tokens = num_added_tokens
 
@@ -117,6 +119,12 @@ def _setup_datasets(dataset_name,
     for item in data_dict.keys():
         if item not in data_select:
             continue
+        preprocessed_path = os.path.join(root, f'preprocessed_{item}.pkl')
+        if os.path.exists(preprocessed_path):
+            with open(preprocessed_path, 'rb') as file:
+                data[item] = pickle.load(file)
+            print(f'loading {item} data from {preprocessed_path}')
+            continue
         data_set = defaultdict(lambda: defaultdict(dict))
         logging.info('Creating {} data'.format(item))
         _iter = iter(data_dict[item]['total'])
@@ -160,7 +168,7 @@ def _setup_datasets(dataset_name,
             data_set[id]['input_dec'] = [SOS] + tokens_dec + pad_length * [EOS]
             data_set[id]['target'] = tokens_dec + [EOS] + pad_length * [PAD]
             data_set[id]['length'] = length
-            data_set[id]['mask_subject_relation'] = [1 if i > relation_idx else 0 for i in range(fix_len)]
+            data_set[id]['mask_subject_relation'] = [1 if i > (relation_idx+1) else 0 for i in range(fix_len)]
             data_set[id]['token_type_ids'] = token_types_enc
             data_set[id]['attn_mask_enc'] = attn_mask_enc
             data_set[id]['attn_mask_dec'] = [1] + attn_mask_dec + pad_length * [0]
@@ -168,13 +176,15 @@ def _setup_datasets(dataset_name,
 
             id += 1
         data[item] = data_set
+        # save data dict to disk
+        with open(preprocessed_path, 'wb+') as file:
+            pickle.dump(dict(data_set), file)
     for key in data_select:
         if not data[key]:
             raise TypeError('Dataset {} is empty!'.format(key))
 
-    num_added_tokens = len(extra_tokens)
-
-    return tuple(AtomicDatasetPretrained(data[d], tokenizer_dec, (num_added_t_enc, num_added_t_dec)) for d in data_select)
+    return tuple(AtomicDatasetPretrained(data[d], [tokenizer_enc, tokenizer_dec],
+                                         (num_added_t_enc, num_added_t_dec)) for d in data_select)
 
 def Atomic2(*args, **kwargs):
     return _setup_datasets(*(("Atomic2",) + args), **kwargs)
