@@ -3,6 +3,7 @@ import logging
 import os
 from collections import defaultdict
 import numpy as np
+import json
 
 from tqdm import tqdm
 from tyche.data.experimental.datasets.language_modeling import LanguageModelingDataset, _get_datafile_path
@@ -68,6 +69,7 @@ class LanguageModelingDatasetPretrained(LanguageModelingDataset):
         self.data = data
         self.tokenizer_list = tokenizer_list
         self.tokenizer = tokenizer_list[-1]
+        self._num_added_tokens = num_added_tokens
 
     def __getitem__(self, i):
         minibatch = dict()
@@ -89,9 +91,8 @@ class LanguageModelingDatasetPretrained(LanguageModelingDataset):
     def get_pad_token_id():
         return -100
 
-    @staticmethod
-    def get_num_added_tokens():
-        return 0
+    def get_num_added_tokens(self):
+        return self._num_added_tokens
 
     def reverse(self, batch):
         batch[batch == -100] = self.tokenizer.eos_token_id
@@ -158,8 +159,6 @@ def _setup_datasets(dataset_name,
             raise ValueError('pretrained tokenizer {} not supported! Choose one of [GPT2, BERT]'.format(model_name))
 
         tokenizer_list.append(tokenizer)
-        # for compatibility with the data loaders
-        special_tokens = []
 
     if dataset_name == 'PennTreebankPretrained':
         extracted_files = []
@@ -204,8 +203,7 @@ def _setup_datasets(dataset_name,
         if not os.path.exists(dataset_tar):
             dataset_tar = download_from_url(url_, root=root)
         extracted_files = extract_archive(dataset_tar)
-        for file in extracted_files:
-            print(file)
+
     else:
         extracted_files = []
         for key in data_select:
@@ -282,7 +280,84 @@ def _setup_datasets(dataset_name,
             raise TypeError('Dataset {} is empty!'.format(key))
 
 
-    return tuple(LanguageModelingDatasetPretrained(data[d], tokenizer_list, len(special_tokens)) for d in data_select)
+    return tuple(LanguageModelingDatasetPretrained(data[d], tokenizer_list, (0, 0)) for d in data_select)
+
+
+def _setup_wikioptimus(dataset_name,
+                        fix_len,
+                        min_len=0,
+                        path_to_pretrained_models='./data',
+                        root='./data',
+                        data_select=('train', 'test', 'valid'), ):
+
+    # get the pretrained tokenizers
+    tokenizer_list = [GPT2Tokenizer.from_pretrained('gpt2', cache_dir=path_to_pretrained_models),
+                      BertTokenizer.from_pretrained('bert-base-uncased', cache_dir=path_to_pretrained_models)]
+
+    # download / extract file if not done yet
+    url_ = URLS[dataset_name]
+    _, filename = os.path.split(url_)
+    dataset_tar = os.path.join(root, filename)
+    dataset_extracted = dataset_tar[:-4]
+    if not os.path.exists(dataset_extracted):
+        if not os.path.exists(dataset_tar):
+            dataset_tar = download_from_url(url_, root=root)
+        print(f'extracting {filename} ...')
+        extract_archive(dataset_tar)
+    extracted_files = os.listdir(dataset_extracted)
+
+    data = dict()
+    # last two files are test and valid sets, rest is train set
+    for item in data_select:
+        if item == 'train':
+            files = extracted_files[:-2]
+        elif item == 'test':
+            files = [extracted_files[-2]]
+        elif item == 'valid':
+            files = [extracted_files[-1]]
+        else:
+            raise TypeError(f'data_select {item} is not supported!')
+
+        # init data_set dictionary
+        data_set = defaultdict(lambda: defaultdict(dict))
+        id = 0
+        for file in tqdm(files, unit='file', desc=f'Preparing {item} dataset'):
+            path_to_file = os.path.join(root, dataset_extracted, file)
+            with open(path_to_file) as json_data:
+                data_list = json.load(json_data)
+                for data_dict in data_list:
+                    ### Bert ###
+                    input_enc = data_dict['bert_token']
+                    length_enc = data_dict['bert_token_length']
+
+                    PAD = tokenizer_list[0].pad_token_id
+
+                    pad_len = fix_len - length_enc
+                    data_set[id][0]['length'] = length_enc
+                    data_set[id][0]['input'] = input_enc + [PAD] * pad_len
+                    data_set[id][0]['attn_mask'] = [1] * length_enc + [0] * pad_len
+
+                    ### GPT2 ###
+                    input_dec = data_dict['gpt2_token'][1:-1]
+                    length_dec = data_dict['gpt2_token_length'] - 2
+
+                    EOS = tokenizer_list[1].eos_token_id
+                    PAD = -100
+
+                    pad_len = fix_len - length_dec - 1
+                    data_set[id][1]['length'] = length_dec
+                    data_set[id][1]['input'] = [EOS] + input_dec + \
+                                                  [EOS] * pad_len
+                    data_set[id][1]['target'] = input_dec + [EOS] + \
+                                                   [PAD] * pad_len
+                    data_set[id][1]['attn_mask'] = [1] * (length_dec + 2) + [0] * pad_len
+
+                    id += 1
+                    print(data[item].device)
+
+        data[item] = data_set
+    return tuple(LanguageModelingDatasetPretrained(data[d], tokenizer_list, (0, 0)) for d in data_select)
+
 
 def PennTreebankPretrained(*args, **kwargs):
     """ Defines PennTreebank datasets.
@@ -325,3 +400,6 @@ def WikiText103Pretrained(*args, **kwargs):
 
 def WikiText2Pretrained(*args, **kwargs):
     return _setup_datasets(*(("WikiText2Pretrained",) + args), **kwargs)
+
+def WikiOptimusPretrained(*args, **kwargs):
+    return _setup_wikioptimus(*(("WikiOptimusPretrained",) + args), **kwargs)
