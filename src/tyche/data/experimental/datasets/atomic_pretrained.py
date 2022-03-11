@@ -91,7 +91,8 @@ def _setup_datasets(dataset_name,
         raise TypeError('data_select is not supported!')
 
     if dataset_name == 'Atomic2':
-        extra_tokens = ["<oEffect>", "<oReact>", "<oWant>", "<xAttr>", "<xEffect>", "<xIntent>", "<xNeed>", "<xReact>", "<xWant>",
+        extra_tokens = ["<oEffect>", "<oReact>", "<oWant>", "<xAttr>", "<xEffect>", "<xIntent>", "<xNeed>",
+                        "<xReact>", "<xWant>",
                         "none", "___", "PersonX", "PersonY"]
 
     # get the pretrained tokenizers
@@ -136,8 +137,8 @@ def _setup_datasets(dataset_name,
             PAD = -100
 
             seq1 = row[0] + " " + row[1]
-            seq2 = row[2]
-            relation = row[1]
+            seq2 = ' ' + row[2]
+            relation = ' ' + row[1]
 
             ### Encoder ###
             tokenizer_enc_out = tokenizer_enc(seq1, seq2, return_token_type_ids=True,
@@ -168,7 +169,7 @@ def _setup_datasets(dataset_name,
             data_set[id]['input_dec'] = [SOS] + tokens_dec + pad_length * [EOS]
             data_set[id]['target'] = tokens_dec + [EOS] + pad_length * [PAD]
             data_set[id]['length'] = length
-            data_set[id]['mask_subject_relation'] = [1 if i > (relation_idx+1) else 0 for i in range(fix_len)]
+            data_set[id]['mask_subject_relation'] = [1 if i > relation_idx else 0 for i in range(fix_len)]
             data_set[id]['token_type_ids'] = token_types_enc
             data_set[id]['attn_mask_enc'] = attn_mask_enc
             data_set[id]['attn_mask_dec'] = [1] + attn_mask_dec + pad_length * [0]

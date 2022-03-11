@@ -531,6 +531,7 @@ class DataLoaderAtomic2(ADataLoader):
         train_dataset, test_dataset, valid_dataset = Atomic2(root=path_to_data,
                                                              fix_len=fix_len,
                                                              min_len=min_len)
+        get_test_unshuffled = kwargs.pop('get_test_unshuffled', True)
 
         train_sampler = None
         valid_sampler = None
@@ -546,6 +547,9 @@ class DataLoaderAtomic2(ADataLoader):
                                       shuffle=valid_sampler is None, **kwargs)
         self._test_iter = DataLoader(test_dataset, drop_last=True, sampler=test_sampler,
                                      shuffle=test_sampler is None, **kwargs)
+        if get_test_unshuffled:
+            kwargs.pop('batch_size')
+            self._test_unshuffled = DataLoader(test_dataset, drop_last=True, batch_size=len(test_dataset), **kwargs)
 
         self._pad_token_id = train_dataset.get_pad_token_id()
         self._unk_token_id = train_dataset.get_unk_token_id()
@@ -555,7 +559,9 @@ class DataLoaderAtomic2(ADataLoader):
         self._num_added_tokens = train_dataset.get_num_added_tokens()
         self._tokenizer = train_dataset.tokenizer
 
-
+    @property
+    def test_unshuffled(self):
+        return self._test_unshuffled
     @property
     def train(self):
         return self._train_iter
