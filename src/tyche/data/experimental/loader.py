@@ -5,7 +5,7 @@ from nltk.tokenize import TweetTokenizer
 from torch.utils.data.dataloader import DataLoader
 from tyche.data.experimental.datasets import WikiText2, WikiText103, PennTreebank, YelpReviewPolarity, YelpReviewFull,\
     YahooAnswers, PennTreebankPretrained, YahooAnswersPretrained, WikiText103Pretrained, WikiText2Pretrained, Atomic2,\
-    YelpReviewPretrained, WikiOptimusPretrained
+    YelpReviewPretrained # WikiOptimusPretrained
 
 sampler = torch.utils.data.RandomSampler
 
