@@ -11,6 +11,7 @@ import torch
 from torchtext.utils import download_from_url, extract_archive
 from transformers import GPT2Tokenizer, BertTokenizer
 import regex as re
+import pickle
 
 
 URLS = {
@@ -220,6 +221,16 @@ def _setup_datasets(dataset_name,
     data = dict()
 
     for item in _path.keys():
+        if item not in data_select:
+            continue
+
+        preprocessed_path = os.path.join(root, f'preprocessed_{item}.pkl')
+        if os.path.exists(preprocessed_path):
+            with open(preprocessed_path, 'rb') as file:
+                data[item] = pickle.load(file)
+            print(f'loading {item} data from {preprocessed_path}')
+            continue
+
         data_set = defaultdict(lambda: defaultdict(dict))
         logging.info('Creating {} data'.format(item))
         _iter = iter(row for row in io.open(_path[item], encoding="utf8"))
@@ -275,6 +286,9 @@ def _setup_datasets(dataset_name,
 
             id += 1
         data[item] = data_set
+        # save data dict to disk
+        with open(preprocessed_path, 'wb+') as file:
+            pickle.dump(dict(data_set), file)
     for key in data_select:
         if not data[key]:
             raise TypeError('Dataset {} is empty!'.format(key))
