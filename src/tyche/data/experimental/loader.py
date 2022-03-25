@@ -5,7 +5,7 @@ from nltk.tokenize import TweetTokenizer
 from torch.utils.data.dataloader import DataLoader
 from tyche.data.experimental.datasets import WikiText2, WikiText103, PennTreebank, YelpReviewPolarity, YelpReviewFull,\
     YahooAnswers, PennTreebankPretrained, YahooAnswersPretrained, WikiText103Pretrained, WikiText2Pretrained, Atomic2,\
-    YelpReviewPretrained # WikiOptimusPretrained
+    YelpReviewPretrained, Atomic2020
 
 sampler = torch.utils.data.RandomSampler
 
@@ -517,7 +517,7 @@ class DataLoaderWikiOptimusPretrained(DataLoaderPretrained):
                                       path_to_pretrained_models=self.path_to_pretrained_models)
 
 
-class DataLoaderAtomic2(ADataLoader):
+class DataLoaderAtomic(ADataLoader):
     """
     Data loader for ATOMIC with pretrained tokenizers and models from huggingface
     """
@@ -527,10 +527,8 @@ class DataLoaderAtomic2(ADataLoader):
 
         super().__init__(device, rank, world_size, **kwargs)
         min_len = kwargs.pop('min_len', 1)
-        fix_len = kwargs.pop('fix_len', 64)
-        train_dataset, test_dataset, valid_dataset = Atomic2(root=path_to_data,
-                                                             fix_len=fix_len,
-                                                             min_len=min_len)
+        self._fix_len = kwargs.pop('fix_len', 64)
+        train_dataset, test_dataset, valid_dataset = self.get_datasets(path_to_data, min_len)
         get_test_unshuffled = kwargs.pop('get_test_unshuffled', True)
 
         train_sampler = None
@@ -553,8 +551,6 @@ class DataLoaderAtomic2(ADataLoader):
 
         self._pad_token_id = train_dataset.get_pad_token_id()
         self._unk_token_id = train_dataset.get_unk_token_id()
-
-        self._fix_length = fix_len
 
         self._num_added_tokens = train_dataset.get_num_added_tokens()
         self._tokenizer = train_dataset.tokenizer
@@ -588,7 +584,7 @@ class DataLoaderAtomic2(ADataLoader):
 
     @property
     def fix_len(self):
-        return self._fix_length
+        return self._fix_len
 
     @property
     def num_added_tokens(self):
@@ -598,6 +594,29 @@ class DataLoaderAtomic2(ADataLoader):
     def vocab(self): # for compatibility with TextTrainer
         return None
 
+class DataLoaderAtomic2(DataLoaderAtomic):
+    """
+    Data loader for ATOMIC with pretrained tokenizers and models from huggingface
+    """
+    def __init__(self, device, rank: int = 0, world_size=-1, **kwargs):
+        super().__init__(device, rank, world_size, **kwargs)
 
+    def get_datasets(self, path_to_data, min_len):
+        return Atomic2(root=path_to_data,
+                          fix_len=self.fix_len,
+                          min_len=min_len)
+
+
+class DataLoaderAtomic2020(DataLoaderAtomic):
+    """
+    Data loader for ATOMIC with pretrained tokenizers and models from huggingface
+    """
+    def __init__(self, device, rank: int = 0, world_size=-1, **kwargs):
+        super().__init__(device, rank, world_size, **kwargs)
+
+    def get_datasets(self, path_to_data, min_len):
+        return Atomic2020(root=path_to_data,
+                          fix_len=self.fix_len,
+                          min_len=min_len)
 
 

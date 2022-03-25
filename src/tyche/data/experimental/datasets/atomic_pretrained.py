@@ -11,7 +11,10 @@ from torchtext.utils import download_from_url, extract_archive
 from transformers import GPT2Tokenizer, BertTokenizer
 import regex as re
 import json
+import csv
 import pickle
+
+URLS = {'Atomic2020': 'https://ai2-atomic.s3-us-west-2.amazonaws.com/data/atomic2020_data-feb2021.zip'}
 
 class AtomicDatasetPretrained(LanguageModelingDataset):
     """Defines a dataset for language modeling using pretrained tokenizers from huggingface transformers.
@@ -94,6 +97,13 @@ def _setup_datasets(dataset_name,
         extra_tokens = ["<oEffect>", "<oReact>", "<oWant>", "<xAttr>", "<xEffect>", "<xIntent>", "<xNeed>",
                         "<xReact>", "<xWant>",
                         "none", "___", "PersonX", "PersonY"]
+    elif dataset_name == 'Atomic2020':
+        extra_tokens = ['<AtLocation>', '<CapableOf>', '<Causes>', '<CausesDesire>', '<CreatedBy>', '<Desires>',
+                        '<HasA>', '<HasFirstSubevent>', '<HasLastSubevent>', '<HasPrerequisite>', '<HasProperty>',
+                        '<HasSubEvent>', '<HinderedBy>', '<InstanceOf>', '<isAfter>', '<isBefore>', '<isFilledBy>',
+                        '<MadeOf>', '<MadeUpOf>', '<MotivatedByGoal>', '<NotDesires>', '<ObjectUse>', '<oEffect>',
+                        '<oReact>', '<oWant>', '<PartOf>', '<ReceivesAction>', '<xAttr>', '<xEffect>', '<xIntent>',
+                        '<xNeed>', '<xReact>', '<xReason>', '<xWant>', "none", "___", "PersonX", "PersonY"]
 
     # get the pretrained tokenizers
     tokenizer_enc = BertTokenizer.from_pretrained('bert-base-uncased')
@@ -112,6 +122,22 @@ def _setup_datasets(dataset_name,
             data_dict = json.load(file)
         data_dict['valid'] = data_dict.pop('dev')
 
+    elif dataset_name == 'Atomic2020':
+        filename = 'atomic2020_extracted'
+        path = os.path.join(root, filename)
+
+        # download and extract if not present
+        if not os.path.exists(path):
+            url = URLS[dataset_name]
+            zip_path = os.path.join(root, 'atomic2020.zip')
+            download_from_url(url, path=zip_path, overwrite=True)
+            extract_archive(zip_path, to_path=path)
+        path = os.path.join(path, 'atomic2020_data-feb2021')
+        data_dict = dict()
+        data_dict['train'] = csv.reader(open(os.path.join(path, 'train.tsv')), delimiter='\t')
+        data_dict['test'] = csv.reader(open(os.path.join(path, 'test.tsv')), delimiter='\t')
+        data_dict['valid'] = csv.reader(open(os.path.join(path, 'dev.tsv')), delimiter='\t')
+
     else:
         raise ValueError(f'Data set {dataset_name} not available. Choose one of [Atomic2, Atomic2020].')
 
@@ -120,7 +146,7 @@ def _setup_datasets(dataset_name,
     for item in data_dict.keys():
         if item not in data_select:
             continue
-        preprocessed_path = os.path.join(root, f'preprocessed_{item}.pkl')
+        preprocessed_path = os.path.join(root, f'preprocessed_len{fix_len}_{item}.pkl')
         if os.path.exists(preprocessed_path):
             with open(preprocessed_path, 'rb') as file:
                 data[item] = pickle.load(file)
@@ -128,7 +154,10 @@ def _setup_datasets(dataset_name,
             continue
         data_set = defaultdict(lambda: defaultdict(dict))
         logging.info('Creating {} data'.format(item))
-        _iter = iter(data_dict[item]['total'])
+        if dataset_name == 'Atomic2':
+            _iter = iter(data_dict[item]['total'])
+        elif dataset_name == 'Atomic2020':
+            _iter = data_dict[item]
         id = 0
         for row in tqdm(_iter, unit='data point', desc=f'Preparing {item} dataset'):
 
@@ -136,9 +165,12 @@ def _setup_datasets(dataset_name,
             EOS = tokenizer_dec.eos_token_id
             PAD = -100
 
-            seq1 = row[0] + " " + row[1]
+            if dataset_name == 'Atomic2':
+                relation = ' ' + row[1]
+            if dataset_name == 'Atomic2020':
+                relation = ' <' + row[1] + '>'
+            seq1 = row[0] + relation
             seq2 = ' ' + row[2]
-            relation = ' ' + row[1]
 
             ### Encoder ###
             tokenizer_enc_out = tokenizer_enc(seq1, seq2, return_token_type_ids=True,
@@ -189,3 +221,6 @@ def _setup_datasets(dataset_name,
 
 def Atomic2(*args, **kwargs):
     return _setup_datasets(*(("Atomic2",) + args), **kwargs)
+
+def Atomic2020(*args, **kwargs):
+    return _setup_datasets(*(("Atomic2020",) + args), **kwargs)

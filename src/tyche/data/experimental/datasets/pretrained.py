@@ -224,7 +224,7 @@ def _setup_datasets(dataset_name,
         if item not in data_select:
             continue
 
-        preprocessed_path = os.path.join(root, f'preprocessed_{item}.pkl')
+        preprocessed_path = os.path.join(root, f'preprocessed_len{fix_len}_{item}.pkl')
         if os.path.exists(preprocessed_path):
             with open(preprocessed_path, 'rb') as file:
                 data[item] = pickle.load(file)
