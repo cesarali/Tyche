@@ -294,6 +294,20 @@ def quadratures(f, a=-1, b=1, n=30):
     return y.type(dtype=to.float)
 
 
+def greedy_sample_categorical(prob, one_hot=True):
+    """
+    Sample greedily from categorical distribution
+    prob (Class probabilities): [B, n_classes]
+    returns greedy samples, as one hot vectors if one_hot
+    """
+    n_classes = prob.shape[-1]
+    z = torch.argmax(prob, dim=-1)
+    if one_hot:
+        z = torch.nn.functional.one_hot(z, num_classes=n_classes).float()
+
+    return z
+
+
 def gumbel_sample(shape, device, epsilon=1e-20):
     """
     Sample Gumbel(0,1)
