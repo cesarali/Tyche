@@ -528,7 +528,8 @@ class DataLoaderAtomic(ADataLoader):
         super().__init__(device, rank, world_size, **kwargs)
         min_len = kwargs.pop('min_len', 1)
         self._fix_len = kwargs.pop('fix_len', 64)
-        train_dataset, test_dataset, valid_dataset = self.get_datasets(path_to_data, min_len)
+        add_gen_token = kwargs.pop('add_gen_token', False)
+        train_dataset, test_dataset, valid_dataset = self.get_datasets(path_to_data, min_len, add_gen_token)
         get_test_unshuffled = kwargs.pop('get_test_unshuffled', True)
 
         train_sampler = None
@@ -601,10 +602,11 @@ class DataLoaderAtomic2(DataLoaderAtomic):
     def __init__(self, device, rank: int = 0, world_size=-1, **kwargs):
         super().__init__(device, rank, world_size, **kwargs)
 
-    def get_datasets(self, path_to_data, min_len):
+    def get_datasets(self, path_to_data, min_len, add_gen_token):
         return Atomic2(root=path_to_data,
-                          fix_len=self.fix_len,
-                          min_len=min_len)
+                        fix_len=self.fix_len,
+                        min_len=min_len,
+                       add_gen_token=add_gen_token)
 
 
 class DataLoaderAtomic2020(DataLoaderAtomic):
@@ -614,9 +616,10 @@ class DataLoaderAtomic2020(DataLoaderAtomic):
     def __init__(self, device, rank: int = 0, world_size=-1, **kwargs):
         super().__init__(device, rank, world_size, **kwargs)
 
-    def get_datasets(self, path_to_data, min_len):
+    def get_datasets(self, path_to_data, min_len, add_gen_token):
         return Atomic2020(root=path_to_data,
                           fix_len=self.fix_len,
-                          min_len=min_len)
+                          min_len=min_len,
+                          add_gen_token=add_gen_token)
 
 

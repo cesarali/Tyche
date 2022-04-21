@@ -86,7 +86,8 @@ def _setup_datasets(dataset_name,
                     min_len=0,
                     min_freq=1,
                     root='./data',
-                    data_select=('train', 'test', 'valid'), ):
+                    data_select=('train', 'test', 'valid'),
+                    add_gen_token=False):
 
     if isinstance(data_select, str):
         data_select = [data_select]
@@ -105,12 +106,16 @@ def _setup_datasets(dataset_name,
                         '<oReact>', '<oWant>', '<PartOf>', '<ReceivesAction>', '<xAttr>', '<xEffect>', '<xIntent>',
                         '<xNeed>', '<xReact>', '<xReason>', '<xWant>', "none", "___", "PersonX", "PersonY"]
 
+
     # get the pretrained tokenizers
     tokenizer_enc = BertTokenizer.from_pretrained('bert-base-uncased')
     tokenizer_dec = GPT2Tokenizer.from_pretrained('gpt2')
 
     num_added_t_enc = tokenizer_enc.add_tokens(extra_tokens)
-    num_added_t_dec = tokenizer_dec.add_tokens(extra_tokens)
+    if add_gen_token:
+        num_added_t_dec = tokenizer_dec.add_tokens(extra_tokens + ['[GEN]'])
+    else:
+        num_added_t_dec = tokenizer_dec.add_tokens(extra_tokens)
 
     if dataset_name == 'Atomic2':
         # filename = 'atomic_preprocessed.zip'
@@ -146,7 +151,7 @@ def _setup_datasets(dataset_name,
     for item in data_dict.keys():
         if item not in data_select:
             continue
-        preprocessed_path = os.path.join(root, f'preprocessed_len{fix_len}_{item}.pkl')
+        preprocessed_path = os.path.join(root, f'preprocessed_len{fix_len}_{item}_gentok-{add_gen_token}.pkl')
         if os.path.exists(preprocessed_path):
             with open(preprocessed_path, 'rb') as file:
                 data[item] = pickle.load(file)
@@ -164,6 +169,7 @@ def _setup_datasets(dataset_name,
             SOS = tokenizer_dec.bos_token_id
             EOS = tokenizer_dec.eos_token_id
             PAD = -100
+            GEN = tokenizer_dec.convert_tokens_to_ids('[GEN]')
 
             if dataset_name == 'Atomic2':
                 relation = ' ' + row[1]
@@ -184,15 +190,22 @@ def _setup_datasets(dataset_name,
 
             ### Decoder ###
             tokenizer_dec_out = tokenizer_dec(seq1 + seq2,
-                                              truncation=True, max_length=fix_len-1, return_length=True)
+                                              truncation=True, max_length=fix_len-2, return_length=True)
             relation = tokenizer_dec(relation)['input_ids']
 
             length = tokenizer_dec_out['length']
             tokens_dec = tokenizer_dec_out['input_ids']
             attn_mask_dec = tokenizer_dec_out['attention_mask']
-            pad_length = fix_len - length - 1
+            relation_idx = tokens_dec.index(relation[0]) + 1
 
-            relation_idx = tokens_dec.index(relation[0])
+            if add_gen_token:
+                tokens_dec = tokens_dec[:relation_idx] + [GEN] + tokens_dec[relation_idx:]
+                pad_length = fix_len - length - 2
+                front_pad = 2
+            else:
+                tokens_dec = tokens_dec[:relation_idx] + tokens_dec[relation_idx:]
+                pad_length = fix_len - length - 1
+                front_pad = 1
 
             if length < min_len:
                 continue
@@ -201,10 +214,10 @@ def _setup_datasets(dataset_name,
             data_set[id]['input_dec'] = [SOS] + tokens_dec + pad_length * [EOS]
             data_set[id]['target'] = tokens_dec + [EOS] + pad_length * [PAD]
             data_set[id]['length'] = length
-            data_set[id]['mask_subject_relation'] = [1 if i > relation_idx else 0 for i in range(fix_len)]
+            data_set[id]['mask_subject_relation'] = [1 if i > (relation_idx + 1) else 0 for i in range(fix_len)]
             data_set[id]['token_type_ids'] = token_types_enc
             data_set[id]['attn_mask_enc'] = attn_mask_enc
-            data_set[id]['attn_mask_dec'] = [1] + attn_mask_dec + pad_length * [0]
+            data_set[id]['attn_mask_dec'] = [1] * front_pad + attn_mask_dec + pad_length * [0]
             data_set[id]['relation'] = relation
 
             id += 1
