@@ -196,16 +196,18 @@ def _setup_datasets(dataset_name,
             length = tokenizer_dec_out['length']
             tokens_dec = tokenizer_dec_out['input_ids']
             attn_mask_dec = tokenizer_dec_out['attention_mask']
-            relation_idx = tokens_dec.index(relation[0]) + 1
+            relation_idx = tokens_dec.index(relation[0])
 
             if add_gen_token:
                 tokens_dec = tokens_dec[:relation_idx] + [GEN] + tokens_dec[relation_idx:]
                 pad_length = fix_len - length - 2
                 front_pad = 2
+                mask_sr_len = relation_idx + 1
             else:
                 tokens_dec = tokens_dec[:relation_idx] + tokens_dec[relation_idx:]
                 pad_length = fix_len - length - 1
                 front_pad = 1
+                mask_sr_len = relation_idx
 
             if length < min_len:
                 continue
@@ -214,7 +216,7 @@ def _setup_datasets(dataset_name,
             data_set[id]['input_dec'] = [SOS] + tokens_dec + pad_length * [EOS]
             data_set[id]['target'] = tokens_dec + [EOS] + pad_length * [PAD]
             data_set[id]['length'] = length
-            data_set[id]['mask_subject_relation'] = [1 if i > (relation_idx + 1) else 0 for i in range(fix_len)]
+            data_set[id]['mask_subject_relation'] = [1 if i > mask_sr_len else 0 for i in range(fix_len)]
             data_set[id]['token_type_ids'] = token_types_enc
             data_set[id]['attn_mask_enc'] = attn_mask_enc
             data_set[id]['attn_mask_dec'] = [1] * front_pad + attn_mask_dec + pad_length * [0]
