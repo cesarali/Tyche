@@ -199,12 +199,11 @@ def _setup_datasets(dataset_name,
             relation_idx = tokens_dec.index(relation[0])
 
             if add_gen_token:
-                tokens_dec = tokens_dec[:relation_idx] + [GEN] + tokens_dec[relation_idx:]
+                mask_sr_len = relation_idx + 1
+                tokens_dec = tokens_dec[:mask_sr_len] + [GEN] + tokens_dec[mask_sr_len:]
                 pad_length = fix_len - length - 2
                 front_pad = 2
-                mask_sr_len = relation_idx + 1
             else:
-                tokens_dec = tokens_dec[:relation_idx] + tokens_dec[relation_idx:]
                 pad_length = fix_len - length - 1
                 front_pad = 1
                 mask_sr_len = relation_idx
