@@ -73,6 +73,9 @@ class AtomicDatasetPretrained(LanguageModelingDataset):
     def get_unk_token_id(self):
         return self.tokenizer.unk_token_id
 
+    def get_gen_token_id(self):
+        return self.tokenizer.convert_tokens_to_ids('[GEN]')
+
     def get_num_added_tokens(self):
         return self.num_added_tokens
 
@@ -214,7 +217,7 @@ def _setup_datasets(dataset_name,
             data_set[id]['input_enc'] = tokens_enc
             data_set[id]['input_dec'] = [SOS] + tokens_dec + pad_length * [EOS]
             data_set[id]['target'] = tokens_dec + [EOS] + pad_length * [PAD]
-            data_set[id]['length'] = length
+            data_set[id]['length'] = length + 2 if add_gen_token else length + 1
             data_set[id]['mask_subject_relation'] = [1 if i > mask_sr_len else 0 for i in range(fix_len)]
             data_set[id]['token_type_ids'] = token_types_enc
             data_set[id]['attn_mask_enc'] = attn_mask_enc
