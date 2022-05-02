@@ -528,8 +528,8 @@ class DataLoaderAtomic(ADataLoader):
         super().__init__(device, rank, world_size, **kwargs)
         min_len = kwargs.pop('min_len', 1)
         self._fix_len = kwargs.pop('fix_len', 64)
-        add_gen_token = kwargs.pop('add_gen_token', False)
-        train_dataset, test_dataset, valid_dataset = self.get_datasets(path_to_data, min_len, add_gen_token)
+        self.add_gen_token = kwargs.pop('add_gen_token', False)
+        train_dataset, test_dataset, valid_dataset = self.get_datasets(path_to_data, min_len, self.add_gen_token)
         get_test_unshuffled = kwargs.pop('get_test_unshuffled', True)
 
         train_sampler = None
@@ -552,6 +552,7 @@ class DataLoaderAtomic(ADataLoader):
 
         self._pad_token_id = train_dataset.get_pad_token_id()
         self._unk_token_id = train_dataset.get_unk_token_id()
+        self._gen_token_id = train_dataset.get_gen_token_id() if self.add_gen_token else None
 
         self._num_added_tokens = train_dataset.get_num_added_tokens()
         self._tokenizer = train_dataset.tokenizer
@@ -581,6 +582,10 @@ class DataLoaderAtomic(ADataLoader):
 
     @property
     def unk_token_id(self):
+        return self._unk_token_id\
+
+    @property
+    def gen_token_id(self):
         return self._unk_token_id
 
     @property
