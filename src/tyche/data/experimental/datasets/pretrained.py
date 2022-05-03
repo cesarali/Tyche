@@ -261,7 +261,7 @@ def _setup_datasets(dataset_name,
 
                     pad_len = fix_len - tokens_attns['length']
 
-                    data_set[id][t_id]['length'] = tokens_attns['length']
+                    data_set[id][t_id]['length'] = tokens_attns['length'] + 1
                     data_set[id][t_id]['input'] = tokens_attns['input_ids'] + [tokenizer.pad_token_id] * pad_len
                     data_set[id][t_id]['attn_mask'] = tokens_attns['attention_mask'] + [0] * pad_len
                 else:
@@ -274,7 +274,7 @@ def _setup_datasets(dataset_name,
 
                     pad_len = fix_len - tokens_attns['length'] - 1
 
-                    data_set[id][t_id]['length'] = tokens_attns['length']
+                    data_set[id][t_id]['length'] = tokens_attns['length'] + 1
                     data_set[id][t_id]['input'] = [tokenizer.bos_token_id] + tokens_attns['input_ids'] + \
                                                   [tokenizer.eos_token_id] * pad_len
                     data_set[id][t_id]['target'] = tokens_attns['input_ids'] + [tokenizer.eos_token_id] + \
