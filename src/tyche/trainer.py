@@ -31,7 +31,7 @@ class MyDistributedDataParallel(DDP):
 
 class BaseTrainingProcedure(metaclass=ABCMeta):
 
-    def __init__(self, model: torch.nn.Module, optimizer: dict, distributed: bool, resume: bool, params: dict, data_loader: ADataLoader, train_logger=None,
+    def __init__(self, model: torch.nn.Module, optimizer: dict, distributed: bool, resume: str, params: dict, data_loader: ADataLoader, train_logger=None,
                  **kwargs):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.data_loader: ADataLoader = data_loader
@@ -91,7 +91,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
                            'val_metric': float('inf')}
 
         self.train_logger = train_logger
-        if resume:
+        if resume is not None:
             self._resume_check_point(resume)
 
     def __init_lr_schedulers(self):
@@ -379,7 +379,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
             self.start_epoch = state['epoch'] + 1
         self.model.load_state_dict(state['model_state'])
         for key in self.optimizer:
-            self.optimizer[key].load_state_dict(state[key])
+            self.optimizer[key]['opt'].load_state_dict(state[key])
         self.logger.info('Finished loading checkpoint: {} ...'.format(path))
 
     def _setup_logging(self) -> logging.Logger:
