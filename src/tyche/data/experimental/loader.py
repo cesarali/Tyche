@@ -540,15 +540,20 @@ class DataLoaderAtomic(ADataLoader):
             valid_sampler = DistributedSampler(valid_dataset, self.world_size, self.rank)
             test_sampler = DistributedSampler(test_dataset, self.world_size, self.rank)
 
-        self._train_iter = DataLoader(train_dataset, drop_last=True, sampler=train_sampler,
-                                      shuffle=train_sampler is None, **kwargs)
-        self._valid_iter = DataLoader(valid_dataset, drop_last=True, sampler=valid_sampler,
-                                      shuffle=valid_sampler is None, **kwargs)
-        self._test_iter = DataLoader(test_dataset, drop_last=True, sampler=test_sampler,
-                                     shuffle=test_sampler is None, **kwargs)
         if get_test_unshuffled:
+            self._train_iter = DataLoader(train_dataset, drop_last=False, **kwargs)
             kwargs.pop('batch_size')
-            self._test_unshuffled = DataLoader(test_dataset, drop_last=True, batch_size=len(test_dataset), **kwargs)
+            self._valid_iter = DataLoader(valid_dataset, drop_last=False, batch_size=len(valid_dataset), **kwargs)
+            self._test_iter = DataLoader(test_dataset, drop_last=False, batch_size=len(test_dataset), **kwargs)
+            self._test_unshuffled = self._test_iter
+        else:
+            self._train_iter = DataLoader(train_dataset, drop_last=True, sampler=train_sampler,
+                                          shuffle=train_sampler is None, **kwargs)
+            self._valid_iter = DataLoader(valid_dataset, drop_last=True, sampler=valid_sampler,
+                                          shuffle=valid_sampler is None, **kwargs)
+            self._test_iter = DataLoader(test_dataset, drop_last=True, sampler=test_sampler,
+                                         shuffle=test_sampler is None, **kwargs)
+
 
         self._pad_token_id = train_dataset.get_pad_token_id()
         self._unk_token_id = train_dataset.get_unk_token_id()

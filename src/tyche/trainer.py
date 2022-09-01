@@ -378,8 +378,8 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         else:
             self.start_epoch = state['epoch'] + 1
         self.model.load_state_dict(state['model_state'])
-        for key in self.optimizer:
-            self.optimizer[key]['opt'].load_state_dict(state[key])
+        # for key in self.optimizer:
+        #     self.optimizer[key]['opt'].load_state_dict(state[key])
         self.logger.info('Finished loading checkpoint: {} ...'.format(path))
 
     def _setup_logging(self) -> logging.Logger:
