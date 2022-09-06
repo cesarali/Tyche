@@ -6,3 +6,4 @@ torchtext = "*"
 spacy = "*"
 revtok = "*"
 pymongo = "*"
+h5py
