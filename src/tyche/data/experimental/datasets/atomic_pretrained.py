@@ -1,19 +1,16 @@
-import io
+import csv
+import json
 import logging
 import os
+import pickle
 from collections import defaultdict
 from pathlib import Path
+import h5py
 import numpy as np
-
-from tqdm import tqdm
-from tyche.data.experimental.datasets.language_modeling import LanguageModelingDataset, _get_datafile_path
-import torch
 from torchtext.utils import download_from_url, extract_archive
-from transformers import GPT2Tokenizer, BertTokenizer
-import regex as re
-import json
-import csv
-import pickle
+from tqdm import tqdm
+from transformers import BertTokenizer, GPT2Tokenizer
+from tyche.data.experimental.datasets.language_modeling import LanguageModelingDataset
 
 URLS = {"Atomic2020": "https://ai2-atomic.s3-us-west-2.amazonaws.com/data/atomic2020_data-feb2021.zip"}
 
@@ -94,6 +91,7 @@ class AtomicDatasetFinetunedKL(AtomicDatasetPretrained):
     def __init__(self, data, tokenizer_list, num_added_tokens, path_to_posterior_samples: str):
         super().__init__(data, tokenizer_list, num_added_tokens)
         self.path_to_posterior_samples = Path(path_to_posterior_samples)
+        self.posterior_samples = h5py.File(self.path_to_posterior_samples, "r")
 
     def __getitem__(self, i):
 
@@ -101,14 +99,21 @@ class AtomicDatasetFinetunedKL(AtomicDatasetPretrained):
             "input_enc": np.asarray(self.data[i]["input_enc"], dtype=np.int64),
             "token_type_ids": np.asarray(self.data[i]["token_type_ids"]),
             "attn_mask_enc": np.asarray(self.data[i]["attn_mask_enc"]),
-            # "walks": waklks,
-            # "walks_prob": walks_prob,
-            # "q_matrix": q_matrix,
+            "walks": self.posterior_samples[f"{i}/walks"][:],
+            "walks_prob": self.posterior_samples[f"{i}/walks_prob"][:],
+            "q_matrix": self.posterior_samples[f"{i}/q_matrix"][:],
         }
 
 
 def _setup_datasets(
-    dataset_name, fix_len, min_len=0, min_freq=1, root="./data", data_select=("train", "test", "valid"), add_gen_token=False
+    dataset_name,
+    fix_len,
+    min_len=0,
+    min_freq=1,
+    root="./data",
+    data_select=("train", "test", "valid"),
+    add_gen_token=False,
+    path_to_posterior_samples=None,
 ):
 
     if isinstance(data_select, str):
@@ -296,11 +301,21 @@ def _setup_datasets(
     for key in data_select:
         if not data[key]:
             raise TypeError("Dataset {} is empty!".format(key))
-
-    return tuple(
-        AtomicDatasetPretrained(data[d], [tokenizer_enc, tokenizer_dec], (num_added_t_enc, num_added_t_dec))
-        for d in data_select
-    )
+    if path_to_posterior_samples is None:
+        return tuple(
+            AtomicDatasetPretrained(data[d], [tokenizer_enc, tokenizer_dec], (num_added_t_enc, num_added_t_dec))
+            for d in data_select
+        )
+    else:
+        return tuple(
+            AtomicDatasetFinetunedKL(
+                data[d],
+                [tokenizer_enc, tokenizer_dec],
+                (num_added_t_enc, num_added_t_dec),
+                path_to_posterior_samples + "/posterior_outputs_" + d + ".hdf5",
+            )
+            for d in data_select
+        )
 
 
 def Atomic2(*args, **kwargs):
