@@ -85,6 +85,8 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         self.n_test_batches: int = data_loader.n_test_batches
 
         self.global_step: int = 0
+        self.global_val_step: int = 0
+        self.global_test_step: int = 0
         self.best_model = {'train_loss': float('inf'),
                            'val_loss': float('inf'),
                            'train_metric': float('inf'),
@@ -185,7 +187,7 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         self._update_step_p_bar(p_bar, stats)
         stats = self._recv_stats_across_nodes(stats)
 
-        self._log_step('train', epoch, batch_idx, self.data_loader.train_set_size, stats)
+        self._log_step('train', epoch, batch_idx, self.data_loader.train_set_size, stats, self.global_step)
         self.global_step += 1
 
         return stats
@@ -202,9 +204,11 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
                     position=self.rank * 2 + 1)
 
             epoch_stats = None
+            tmp = []
             for batch_idx, data in enumerate(self.data_loader.validate):
                 batch_stats = self._validate_step(data, batch_idx, epoch, p_bar)
                 epoch_stats = self._update_stats(epoch_stats, batch_stats)
+                tmp.append(batch_stats['loss'])
             p_bar.close()
             del p_bar
             epoch_stats = self._normalize_stats(self.n_validate_batches, epoch_stats)
@@ -216,8 +220,8 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         stats = self.model.validate_step(minibatch)
         self._update_step_p_bar(p_bar, stats)
         stats = self._recv_stats_across_nodes(stats)
-
-        self._log_step('validate', epoch, batch_idx, self.data_loader.validation_set_size, stats)
+        self._log_step('validate', epoch, batch_idx, self.data_loader.validation_set_size, stats, self.global_val_step)
+        self.global_val_step += 1
 
         return stats
 
@@ -248,7 +252,8 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
         stats = self.model.validate_step(minibatch)
         self._update_step_p_bar(p_bar, stats)
         stats = self._recv_stats_across_nodes(stats)
-        self._log_step('test', epoch, batch_idx, self.data_loader.test_set_size, stats)
+        self._log_step('test', epoch, batch_idx, self.data_loader.test_set_size, stats, self.global_test_step)
+        self.global_test_step += 1
 
         return stats
 
@@ -398,14 +403,15 @@ class BaseTrainingProcedure(metaclass=ABCMeta):
 
         return logger
 
-    def _log_step(self, step_type: str, epoch: int, batch_idx: int, data_len: int, stats: dict) -> None:
+    def _log_step(self, step_type: str, epoch: int, batch_idx: int, data_len: int, stats: dict, step) -> None:
         if not self.is_rank_0:
             return None
         log = self._build_raw_log_str(f'{step_type} epoch', batch_idx, epoch, stats, float(data_len), self.batch_size)
         self.t_logger.info(log)
         for k, v in stats.items():
             if is_primitive(v):
-                self.summary.add_scalar(f'{step_type}/batch/' + k, v, self.global_step)
+                self.summary.add_scalar(f'{step_type}/batch/' + k, v, step)
+
 
     @staticmethod
     def _build_raw_log_str(prefix: str, batch_idx: int, epoch: int, logs: dict, data_len: float, batch_size: int):
