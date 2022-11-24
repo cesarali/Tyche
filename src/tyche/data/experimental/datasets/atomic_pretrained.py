@@ -8,11 +8,15 @@ from pathlib import Path
 import h5py
 import numpy as np
 from torchtext.utils import download_from_url, extract_archive
+import gzip
 from tqdm import tqdm
 from transformers import BertTokenizer, GPT2Tokenizer
 from tyche.data.experimental.datasets.language_modeling import LanguageModelingDataset
 
-URLS = {"Atomic2020": "https://ai2-atomic.s3-us-west-2.amazonaws.com/data/atomic2020_data-feb2021.zip"}
+URLS = {"Atomic2020": "https://ai2-atomic.s3-us-west-2.amazonaws.com/data/atomic2020_data-feb2021.zip",
+        'ConceptNet': ['https://ttic.uchicago.edu/~kgimpel/comsense_resources/train100k.txt.gz',
+                       'https://ttic.uchicago.edu/~kgimpel/comsense_resources/dev1.txt.gz',
+                       'https://ttic.uchicago.edu/~kgimpel/comsense_resources/test.txt.gz']}
 
 
 class AtomicDatasetPretrained(LanguageModelingDataset):
@@ -178,6 +182,41 @@ def _setup_datasets(
             "PersonX",
             "PersonY",
         ]
+    elif dataset_name == 'ConceptNet':
+        extra_tokens = ['<AtLocation>',
+                        '<CapableOf>',
+                        '<Causes>',
+                        '<CausesDesire>',
+                        '<CreatedBy>',
+                        '<DefinedAs>',
+                        '<DesireOf>',
+                        '<Desires>',
+                        '<HasA>',
+                        '<HasFirstSubevent>',
+                        '<HasLastSubevent>',
+                        '<HasPainCharacter>',
+                        '<HasPainIntensity>',
+                        '<HasPrerequisite>',
+                        '<HasProperty>',
+                        '<HasSubevent>',
+                        '<InheritsFrom>',
+                        '<InstanceOf>',
+                        '<IsA>',
+                        '<LocatedNear>',
+                        '<LocationOfAction>',
+                        '<MadeOf>',
+                        '<MotivatedByGoal>',
+                        '<NotCapableOf>',
+                        '<NotDesires>',
+                        '<NotHasA>',
+                        '<NotHasProperty>',
+                        '<NotIsA>',
+                        '<NotMadeOf>',
+                        '<PartOf>',
+                        '<ReceivesAction>',
+                        '<RelatedTo>',
+                        '<SymbolOf>',
+                        '<UsedFor>']
 
     # get the pretrained tokenizers
     tokenizer_enc = BertTokenizer.from_pretrained("bert-base-uncased")
@@ -189,6 +228,7 @@ def _setup_datasets(
     else:
         num_added_t_dec = tokenizer_dec.add_tokens(extra_tokens)
 
+    Path(root).mkdir(parents=True, exist_ok=True)
     if dataset_name == "Atomic2":
         # filename = 'atomic_preprocessed.zip'
         filename = "atomic_simple_preprocessed.zip"
@@ -215,8 +255,22 @@ def _setup_datasets(
         data_dict["test"] = csv.reader(open(os.path.join(path, "test.tsv")), delimiter="\t")
         data_dict["valid"] = csv.reader(open(os.path.join(path, "dev.tsv")), delimiter="\t")
 
+    elif dataset_name == 'ConceptNet':
+        filenames = ['train100k.txt.gz', 'dev1.txt.gz', 'test.txt.gz']
+        setnames = ['train', 'valid', 'test']
+        data_dict = dict()
+        for i, (filename, setname) in enumerate(zip(filenames, setnames)):
+            path = os.path.join(root, filename)
+
+            # download and extract if not present
+            if not os.path.exists(path):
+                url = URLS[dataset_name][i]
+                download_from_url(url, path=path, overwrite=True)
+            file = gzip.open(path, 'rt')
+            data_dict[setname] = csv.reader(file, delimiter="\t")
+
     else:
-        raise ValueError(f"Data set {dataset_name} not available. Choose one of [Atomic2, Atomic2020].")
+        raise ValueError(f"Data set {dataset_name} not available. Choose one of [Atomic2, Atomic2020, ConceptNet].")
 
     data = dict()
 
@@ -233,7 +287,7 @@ def _setup_datasets(
         logging.info("Creating {} data".format(item))
         if dataset_name == "Atomic2":
             _iter = iter(data_dict[item]["total"])
-        elif dataset_name == "Atomic2020":
+        elif dataset_name in ['Atomic2020', 'ConceptNet']:
             _iter = data_dict[item]
         id = 0
         for row in tqdm(_iter, unit="data point", desc=f"Preparing {item} dataset"):
@@ -245,10 +299,18 @@ def _setup_datasets(
 
             if dataset_name == "Atomic2":
                 relation = " " + row[1]
+                subject = row[0]
+                object = row[2]
             if dataset_name == "Atomic2020":
                 relation = " <" + row[1] + ">"
-            seq1 = row[0] + relation
-            seq2 = " " + row[2]
+                subject = row[0]
+                object = row[2]
+            if dataset_name == 'ConceptNet':
+                relation = ' <' + row[0] + '>'
+                subject = row[1]
+                object = row[2]
+            seq1 = subject + relation
+            seq2 = " " + object
 
             ### Encoder ###
             tokenizer_enc_out = tokenizer_enc(
@@ -293,6 +355,7 @@ def _setup_datasets(
             data_set[id]["attn_mask_dec"] = [1] * front_pad + attn_mask_dec + pad_length * [0]
             data_set[id]["relation"] = relation
 
+
             id += 1
         data[item] = data_set
         # save data dict to disk
@@ -324,3 +387,6 @@ def Atomic2(*args, **kwargs):
 
 def Atomic2020(*args, **kwargs):
     return _setup_datasets(*(("Atomic2020",) + args), **kwargs)
+
+def ConceptNet(*args, **kwargs):
+    return _setup_datasets(*(("ConceptNet",) + args), **kwargs)

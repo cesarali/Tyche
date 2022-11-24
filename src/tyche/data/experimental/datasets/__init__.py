@@ -2,7 +2,7 @@ from .language_modeling import LanguageModelingDataset, WikiText2, WikiText103, 
 from .text_classification import YelpReviewPolarity, YelpReviewFull, YahooAnswers
 from .pretrained import PennTreebankPretrained, YahooAnswersPretrained, WikiText103Pretrained, WikiText2Pretrained,\
     YelpReviewPretrained, WikiOptimusPretrained
-from .atomic_pretrained import Atomic2, Atomic2020
+from .atomic_pretrained import Atomic2, Atomic2020, ConceptNet
 
 __all__ = ['LanguageModelingDataset',
            'WikiText2',
@@ -18,4 +18,5 @@ __all__ = ['LanguageModelingDataset',
            'WikiText2Pretrained',
            'WikiOptimusPretrained',
            'Atomic2',
-           'Atomic2020']
+           'Atomic2020',
+           'ConceptNet']

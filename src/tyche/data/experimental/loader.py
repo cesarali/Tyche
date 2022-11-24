@@ -17,6 +17,7 @@ from tyche.data.experimental.datasets import (
     Atomic2,
     YelpReviewPretrained,
     Atomic2020,
+    ConceptNet,
 )
 
 sampler = torch.utils.data.RandomSampler
@@ -629,7 +630,6 @@ class DataLoaderAtomic(ADataLoader):
 
         if get_test_unshuffled:
             self._train_iter = DataLoader(train_dataset, drop_last=False, **kwargs)
-
             self._valid_iter = DataLoader(valid_dataset, drop_last=False, **kwargs)
             self._test_iter = DataLoader(test_dataset, drop_last=False, **kwargs)
             self._test_unshuffled = self._test_iter
@@ -737,3 +737,14 @@ class DataLoaderAtomic2020(DataLoaderAtomic):
 
     def get_datasets(self, path_to_data, min_len, add_gen_token):
         return Atomic2020(root=path_to_data, fix_len=self.fix_len, min_len=min_len, add_gen_token=add_gen_token)
+
+class DataLoaderConceptNetPretrained(DataLoaderAtomic):
+    """
+    Data loader for ConceptNet with pretrained tokenizers and models from huggingface
+    """
+
+    def __init__(self, device, rank: int = 0, world_size=-1, **kwargs):
+        super().__init__(device, rank, world_size, **kwargs)
+
+    def get_datasets(self, path_to_data, min_len, add_gen_token):
+        return ConceptNet(root=path_to_data, fix_len=self.fix_len, min_len=min_len, add_gen_token=add_gen_token)
