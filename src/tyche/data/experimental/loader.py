@@ -18,6 +18,7 @@ from tyche.data.experimental.datasets import (
     YelpReviewPretrained,
     Atomic2020,
     ConceptNet,
+    ConceptNet5,
 )
 
 sampler = torch.utils.data.RandomSampler
@@ -613,9 +614,10 @@ class DataLoaderAtomic(ADataLoader):
         self.add_gen_token = kwargs.pop("add_gen_token", False)
         path_to_posterior_samples = kwargs.pop("path_to_posterior_samples", None)
         if path_to_posterior_samples is None:
-            train_dataset, test_dataset, valid_dataset = self.get_datasets(path_to_data, min_len, self.add_gen_token)
+            train_dataset, test_dataset, valid_dataset, test_unshuffled_unique = self.get_datasets(
+                path_to_data, min_len, self.add_gen_token)
         else:
-            train_dataset, test_dataset, valid_dataset = self.get_datasets(
+            train_dataset, test_dataset, valid_dataset, test_unshuffled_unique = self.get_datasets(
                 path_to_data, min_len, self.add_gen_token, path_to_posterior_samples
             )
         get_test_unshuffled = kwargs.pop("get_test_unshuffled", True)
@@ -632,7 +634,7 @@ class DataLoaderAtomic(ADataLoader):
             self._train_iter = DataLoader(train_dataset, drop_last=False, **kwargs)
             self._valid_iter = DataLoader(valid_dataset, drop_last=False, **kwargs)
             self._test_iter = DataLoader(test_dataset, drop_last=False, **kwargs)
-            self._test_unshuffled = self._test_iter
+            self._test_sub_rel_unique = DataLoader(test_unshuffled_unique, drop_last=False, **kwargs)
         else:
             self._train_iter = DataLoader(
                 train_dataset, drop_last=True, sampler=train_sampler, shuffle=train_sampler is None, **kwargs
@@ -654,6 +656,10 @@ class DataLoaderAtomic(ADataLoader):
     @property
     def test_unshuffled(self):
         return self._test_unshuffled
+
+    @property
+    def test_sub_rel_unique(self):
+        return self._test_sub_rel_unique
 
     @property
     def train(self):
@@ -748,3 +754,14 @@ class DataLoaderConceptNetPretrained(DataLoaderAtomic):
 
     def get_datasets(self, path_to_data, min_len, add_gen_token):
         return ConceptNet(root=path_to_data, fix_len=self.fix_len, min_len=min_len, add_gen_token=add_gen_token)
+
+class DataLoaderConceptNet5(DataLoaderAtomic):
+    """
+    Data loader for ConceptNet with pretrained tokenizers and models from huggingface
+    """
+
+    def __init__(self, device, rank: int = 0, world_size=-1, **kwargs):
+        super().__init__(device, rank, world_size, **kwargs)
+
+    def get_datasets(self, path_to_data, min_len, add_gen_token):
+        return ConceptNet5(root=path_to_data, fix_len=self.fix_len, min_len=min_len, add_gen_token=add_gen_token)

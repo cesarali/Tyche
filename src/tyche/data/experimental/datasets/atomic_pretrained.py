@@ -14,9 +14,10 @@ from transformers import BertTokenizer, GPT2Tokenizer
 from tyche.data.experimental.datasets.language_modeling import LanguageModelingDataset
 
 URLS = {"Atomic2020": "https://ai2-atomic.s3-us-west-2.amazonaws.com/data/atomic2020_data-feb2021.zip",
-        'ConceptNet': ['https://ttic.uchicago.edu/~kgimpel/comsense_resources/train100k.txt.gz',
+        'ConceptNet': ['https://ttic.uchicago.edu/~kgimpel/comsense_resources/train300k.txt.gz',
                        'https://ttic.uchicago.edu/~kgimpel/comsense_resources/dev1.txt.gz',
-                       'https://ttic.uchicago.edu/~kgimpel/comsense_resources/test.txt.gz']}
+                       'https://ttic.uchicago.edu/~kgimpel/comsense_resources/test.txt.gz'],
+        'ConceptNet5': 'https://s3.amazonaws.com/conceptnet/downloads/2019/edges/conceptnet-assertions-5.7.0.csv.gz'}
 
 
 class AtomicDatasetPretrained(LanguageModelingDataset):
@@ -115,15 +116,100 @@ def _setup_datasets(
     min_len=0,
     min_freq=1,
     root="./data",
-    data_select=("train", "test", "valid"),
+    data_select=("train", "test", "valid", 'test_unshuffled_unique'),
     add_gen_token=False,
     path_to_posterior_samples=None,
 ):
-
     if isinstance(data_select, str):
         data_select = [data_select]
-    if not set(data_select).issubset({"train", "test", "valid"}):
+    if not set(data_select).issubset({"train", "test", "valid", 'test_unshuffled_unique'}):
         raise TypeError("data_select is not supported!")
+
+    Path(root).mkdir(parents=True, exist_ok=True)
+    if dataset_name == "Atomic2":
+        # filename = 'atomic_preprocessed.zip'
+        filename = "atomic_simple_preprocessed.zip"
+        path = os.path.join(root, filename)
+
+        extracted_file = extract_archive(path)[0]
+        with open(extracted_file) as file:
+            data_dict = json.load(file)
+        data_dict["valid"] = data_dict.pop("dev")
+
+    elif dataset_name == "Atomic2020":
+        filename = "atomic2020_extracted"
+        path = os.path.join(root, filename)
+
+        # download and extract if not present
+        if not os.path.exists(path):
+            url = URLS[dataset_name]
+            zip_path = os.path.join(root, "atomic2020.zip")
+            download_from_url(url, path=zip_path, overwrite=True)
+            extract_archive(zip_path, to_path=path)
+        path = os.path.join(path, "atomic2020_data-feb2021")
+        data_dict = dict()
+        data_dict["train"] = csv.reader(open(os.path.join(path, "train.tsv")), delimiter="\t")
+        data_dict["test"] = csv.reader(open(os.path.join(path, "test.tsv")), delimiter="\t")
+        data_dict["valid"] = csv.reader(open(os.path.join(path, "dev.tsv")), delimiter="\t")
+
+    elif dataset_name == 'ConceptNet':
+        filenames = ['train300k.txt.gz', 'dev1.txt.gz', 'test.txt.gz']
+        setnames = ['train', 'valid', 'test']
+        data_dict = dict()
+        for i, (filename, setname) in enumerate(zip(filenames, setnames)):
+            path = os.path.join(root, filename)
+
+            # download and extract if not present
+            if not os.path.exists(path):
+                url = URLS[dataset_name][i]
+                download_from_url(url, path=path, overwrite=True)
+            file = gzip.open(path, 'rt')
+            data_dict[setname] = csv.reader(file, delimiter="\t")
+
+    elif dataset_name == 'ConceptNet5':
+        filename = 'conceptnet-assertions-5.7.0-english.csv'
+
+        # download and extract if not present
+        path = os.path.join(root, filename)
+        if not os.path.exists(path):
+            zip_path = os.path.join(root, 'conceptnet-assertions-5.7.0.csv.gz')
+            url = URLS[dataset_name]
+            download_from_url(url, path=zip_path, overwrite=True)
+            with gzip.open(zip_path, 'rt') as in_file:
+                data_file = csv.reader(in_file, delimiter='\t')
+                with open(path, 'w') as out_file:
+                    writer = csv.writer(out_file)
+                    print('filtering out english examples')
+                    for line in tqdm(data_file):
+                        # only english and no dbpedia
+                        if line[2][3:5] == line[3][3:5] == 'en' and 'dbpedia' not in line[1]:
+                            writer.writerow(['<' + line[1][3:] + '>', line[2][6:-2], line[3][6:]])
+
+        file = open(path, 'rt')
+        data_file = np.array(list(csv.reader(file)))
+        data_size = len(data_file)
+        print(data_file[:10])
+
+        # randomly permute the data
+        rng = np.random.default_rng(seed=0)
+        data_file = data_file[rng.permutation(data_size)]
+
+        # determine train (90%) and valid/test (5%/5%) sizes
+        train_size = int(data_size * .9)
+        test_size = (data_size - train_size) // 2
+
+        # create 3 splits from the data
+        data_dict = dict()
+        data_dict["train"] = data_file[:train_size]
+        data_dict["test"] = data_file[train_size:train_size+test_size]
+        data_dict["valid"] = data_file[train_size+test_size:]
+
+        # determine extra tokens
+        relations = list(map(list, zip(*data_file)))[0]
+        extra_tokens = list(set(relations))
+
+    else:
+        raise ValueError(f"Data set {dataset_name} not available. Choose one of [Atomic2, Atomic2020, ConceptNet, ConceptNet5].")
 
     if dataset_name == "Atomic2":
         extra_tokens = [
@@ -228,52 +314,8 @@ def _setup_datasets(
     else:
         num_added_t_dec = tokenizer_dec.add_tokens(extra_tokens)
 
-    Path(root).mkdir(parents=True, exist_ok=True)
-    if dataset_name == "Atomic2":
-        # filename = 'atomic_preprocessed.zip'
-        filename = "atomic_simple_preprocessed.zip"
-        path = os.path.join(root, filename)
-
-        extracted_file = extract_archive(path)[0]
-        with open(extracted_file) as file:
-            data_dict = json.load(file)
-        data_dict["valid"] = data_dict.pop("dev")
-
-    elif dataset_name == "Atomic2020":
-        filename = "atomic2020_extracted"
-        path = os.path.join(root, filename)
-
-        # download and extract if not present
-        if not os.path.exists(path):
-            url = URLS[dataset_name]
-            zip_path = os.path.join(root, "atomic2020.zip")
-            download_from_url(url, path=zip_path, overwrite=True)
-            extract_archive(zip_path, to_path=path)
-        path = os.path.join(path, "atomic2020_data-feb2021")
-        data_dict = dict()
-        data_dict["train"] = csv.reader(open(os.path.join(path, "train.tsv")), delimiter="\t")
-        data_dict["test"] = csv.reader(open(os.path.join(path, "test.tsv")), delimiter="\t")
-        data_dict["valid"] = csv.reader(open(os.path.join(path, "dev.tsv")), delimiter="\t")
-
-    elif dataset_name == 'ConceptNet':
-        filenames = ['train100k.txt.gz', 'dev1.txt.gz', 'test.txt.gz']
-        setnames = ['train', 'valid', 'test']
-        data_dict = dict()
-        for i, (filename, setname) in enumerate(zip(filenames, setnames)):
-            path = os.path.join(root, filename)
-
-            # download and extract if not present
-            if not os.path.exists(path):
-                url = URLS[dataset_name][i]
-                download_from_url(url, path=path, overwrite=True)
-            file = gzip.open(path, 'rt')
-            data_dict[setname] = csv.reader(file, delimiter="\t")
-
-    else:
-        raise ValueError(f"Data set {dataset_name} not available. Choose one of [Atomic2, Atomic2020, ConceptNet].")
-
     data = dict()
-
+    data_dict['test_unshuffled_unique'] = data_dict['test']
     for item in data_dict.keys():
         if item not in data_select:
             continue
@@ -287,9 +329,10 @@ def _setup_datasets(
         logging.info("Creating {} data".format(item))
         if dataset_name == "Atomic2":
             _iter = iter(data_dict[item]["total"])
-        elif dataset_name in ['Atomic2020', 'ConceptNet']:
+        elif dataset_name in ['Atomic2020', 'ConceptNet', 'ConceptNet5']:
             _iter = data_dict[item]
         id = 0
+        unique_sub_rel = []
         for row in tqdm(_iter, unit="data point", desc=f"Preparing {item} dataset"):
 
             SOS = tokenizer_dec.bos_token_id
@@ -301,12 +344,26 @@ def _setup_datasets(
                 relation = " " + row[1]
                 subject = row[0]
                 object = row[2]
-            if dataset_name == "Atomic2020":
+            elif dataset_name == "Atomic2020":
                 relation = " <" + row[1] + ">"
                 subject = row[0]
                 object = row[2]
-            if dataset_name == 'ConceptNet':
+            elif dataset_name == 'ConceptNet':
                 relation = ' <' + row[0] + '>'
+                subject = row[1]
+                object = row[2]
+                # skip negative examples
+                if item != 'train' and row[3] == '0':
+                    continue
+            if item == 'test_unshuffled_unique':
+                if subject + relation in unique_sub_rel:
+                    continue
+                else:
+                    unique_sub_rel.append(subject + relation)
+
+
+            elif dataset_name == 'ConceptNet5':
+                relation = ' ' + row[0]
                 subject = row[1]
                 object = row[2]
             seq1 = subject + relation
@@ -390,3 +447,6 @@ def Atomic2020(*args, **kwargs):
 
 def ConceptNet(*args, **kwargs):
     return _setup_datasets(*(("ConceptNet",) + args), **kwargs)
+
+def ConceptNet5(*args, **kwargs):
+    return _setup_datasets(*(("ConceptNet5",) + args), **kwargs)
