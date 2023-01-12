@@ -18,7 +18,7 @@ from tyche.data.experimental.datasets import (
     YelpReviewPretrained,
     Atomic2020,
     ConceptNet,
-    ConceptNet5,
+    # ConceptNet5,
 )
 
 sampler = torch.utils.data.RandomSampler
