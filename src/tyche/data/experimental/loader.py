@@ -620,7 +620,7 @@ class DataLoaderAtomic(ADataLoader):
             train_dataset, test_dataset, valid_dataset, test_unshuffled_unique = self.get_datasets(
                 path_to_data, min_len, self.add_gen_token, path_to_posterior_samples
             )
-        get_test_unshuffled = kwargs.pop("get_test_unshuffled", True)
+        get_test_unshuffled = kwargs.pop("get_test_unshuffled", False)
 
         train_sampler = None
         valid_sampler = None
