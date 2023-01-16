@@ -651,6 +651,7 @@ class DataLoaderAtomic(ADataLoader):
         self._gen_token_id = train_dataset.get_gen_token_id() if self.add_gen_token else None
 
         self._num_added_tokens = train_dataset.get_num_added_tokens()
+        self._num_relations = train_dataset.num_relations
         self._tokenizer = train_dataset.tokenizer
 
     @property
@@ -696,6 +697,10 @@ class DataLoaderAtomic(ADataLoader):
     @property
     def num_added_tokens(self):
         return self._num_added_tokens
+
+    @property
+    def num_relations(self):
+        return self._num_relations
 
     @property
     def vocab(self):  # for compatibility with TextTrainer

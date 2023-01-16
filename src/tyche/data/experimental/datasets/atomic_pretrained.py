@@ -8,6 +8,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 from torchtext.utils import download_from_url, extract_archive
+import torch
 import gzip
 from tqdm import tqdm
 from transformers import BertTokenizer, GPT2Tokenizer
@@ -38,7 +39,7 @@ class AtomicDatasetPretrained(LanguageModelingDataset):
 
     """
 
-    def __init__(self, data, tokenizer_list, num_added_tokens):
+    def __init__(self, data, tokenizer_list, num_added_tokens, num_relations):
         """Initiate language modeling dataset using pretrained tokenizers from huggingface.
 
         Arguments:
@@ -55,6 +56,7 @@ class AtomicDatasetPretrained(LanguageModelingDataset):
         self.tokenizer = tokenizer_list[-1]
 
         self.num_added_tokens = num_added_tokens
+        self.num_relations = num_relations
 
     def __getitem__(self, i):
         return {
@@ -304,6 +306,8 @@ def _setup_datasets(
                         '<SymbolOf>',
                         '<UsedFor>']
 
+    relation_eye = torch.eye(len(extra_tokens))
+
     # get the pretrained tokenizers
     tokenizer_enc = BertTokenizer.from_pretrained("bert-base-uncased")
     tokenizer_dec = GPT2Tokenizer.from_pretrained("gpt2")
@@ -355,13 +359,6 @@ def _setup_datasets(
                 # skip negative examples
                 if item != 'train' and row[3] == '0':
                     continue
-            if item == 'test_unshuffled_unique':
-                if subject + relation in unique_sub_rel:
-                    continue
-                else:
-                    unique_sub_rel.append(subject + relation)
-
-
             elif dataset_name == 'ConceptNet5':
                 relation = ' ' + row[0]
                 subject = row[1]
@@ -369,6 +366,11 @@ def _setup_datasets(
             seq1 = subject + relation
             seq2 = " " + object
 
+            if item == 'test_unshuffled_unique':
+                if subject + relation in unique_sub_rel:
+                    continue
+                else:
+                    unique_sub_rel.append(subject + relation)
             ### Encoder ###
             tokenizer_enc_out = tokenizer_enc(
                 seq1, seq2, return_token_type_ids=True, padding="max_length", truncation="only_second", max_length=fix_len
@@ -382,12 +384,14 @@ def _setup_datasets(
 
             ### Decoder ###
             tokenizer_dec_out = tokenizer_dec(seq1 + seq2, truncation=True, max_length=fix_len - 2, return_length=True)
-            relation = tokenizer_dec(relation)["input_ids"]
+            relation_token = tokenizer_dec(relation)["input_ids"]
 
             length = tokenizer_dec_out["length"]
             tokens_dec = tokenizer_dec_out["input_ids"]
             attn_mask_dec = tokenizer_dec_out["attention_mask"]
-            relation_idx = tokens_dec.index(relation[0])
+            relation_idx = tokens_dec.index(relation_token[0])
+
+            relation_one_hot = relation_eye[extra_tokens.index(relation[1:])]
 
             if add_gen_token:
                 mask_sr_len = relation_idx + 1
@@ -410,8 +414,7 @@ def _setup_datasets(
             data_set[id]["token_type_ids"] = token_types_enc
             data_set[id]["attn_mask_enc"] = attn_mask_enc
             data_set[id]["attn_mask_dec"] = [1] * front_pad + attn_mask_dec + pad_length * [0]
-            data_set[id]["relation"] = relation
-
+            data_set[id]["relation"] = relation_one_hot
 
             id += 1
         data[item] = data_set
@@ -423,7 +426,7 @@ def _setup_datasets(
             raise TypeError("Dataset {} is empty!".format(key))
     if path_to_posterior_samples is None:
         return tuple(
-            AtomicDatasetPretrained(data[d], [tokenizer_enc, tokenizer_dec], (num_added_t_enc, num_added_t_dec))
+            AtomicDatasetPretrained(data[d], [tokenizer_enc, tokenizer_dec], (num_added_t_enc, num_added_t_dec), len(extra_tokens))
             for d in data_select
         )
     else:
